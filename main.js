@@ -1,10 +1,7 @@
-// ==================== MAIN INITIALIZATION ====================
-let undoStack = [];
-let redoStack = [];
-let places = [];
-let currentPlaceId = 1;
-let gpsWatchId = null;
+// main.js - Main initialization and orchestration
+// Must be loaded last, after all other scripts
 
+// ========== HELPER FUNCTIONS ==========
 async function fullRefresh() {
     await loadData();
     await detectConflicts();
@@ -45,12 +42,14 @@ async function loadData() {
         }
 
         syncSettingsToUI();
+        console.log('loadData completed successfully');
     } catch (error) {
         console.error('loadData failed:', error);
         showToast('Failed to load data. Please refresh the page.', 'error');
     }
 }
 
+// ========== UNDO/REDO ==========
 async function pushAction(description, undoFunc, redoFunc) {
     const action = { description, undo: undoFunc, redo: redoFunc, timestamp: Date.now() };
     undoStack.push(action);
@@ -82,7 +81,8 @@ function updateUndoRedoButtons() {
     if (redoBtn) redoBtn.disabled = redoStack.length === 0;
 }
 
-function startGPS() {
+// ========== GPS ==========
+async function startGPS() {
     if (!navigator.geolocation) {
         showToast('GPS not supported', 'error');
         return;
@@ -149,8 +149,7 @@ async function handleGpsPosition(position) {
     }
 }
 
-let wizardStep = 1;
-let wizardData = {};
+// ========== WIZARD ==========
 function renderWizardStep() {
     const container = document.getElementById('wizardStepsContainer');
     const backBtn = document.getElementById('wizardBackBtn');
@@ -258,6 +257,7 @@ function renderWizardStep() {
     };
 }
 
+// ========== MAIN INITIALIZATION ==========
 window.addEventListener('DOMContentLoaded', async () => {
     await initDB();
     await loadData();
@@ -280,6 +280,7 @@ window.addEventListener('DOMContentLoaded', async () => {
         await fullRefresh();
     }
 
+    // ========== UI EVENT LISTENERS ==========
     document.getElementById('undoBtn')?.addEventListener('click', undo);
     document.getElementById('redoBtn')?.addEventListener('click', redo);
     document.getElementById('todayBtn')?.addEventListener('click', () => { currentDate = new Date(); renderCalendar(); });
@@ -300,15 +301,6 @@ window.addEventListener('DOMContentLoaded', async () => {
         renderCalendar();
     });
     document.getElementById('fab')?.addEventListener('click', () => openEventModal());
-    document.getElementById('settingsBtn')?.addEventListener('click', () => {
-        const modal = document.getElementById('settingsModal');
-        if (modal) {
-            const tabs = document.querySelectorAll('.settings-tab');
-            const prefTab = Array.from(tabs).find(t => t.dataset.tab === 'preferences');
-            if (prefTab) prefTab.click();
-            modal.classList.remove('hidden');
-        }
-    });
     document.getElementById('wizardExitBtn')?.addEventListener('click', async () => {
         await setSetting('wizardComplete', true);
         wizardOverlay?.classList.add('hidden');
@@ -321,6 +313,54 @@ window.addEventListener('DOMContentLoaded', async () => {
         else startGPS();
     });
 
+    // ========== MODAL BACKDROP CLOSE ==========
+    document.querySelectorAll('.modal-backdrop[data-closeable]').forEach(modal => {
+        modal.addEventListener('click', (e) => {
+            if (e.target === modal) {
+                if (modal.id === 'eventModal') {
+                    closeEventModalWithCheck();
+                } else {
+                    ModalManager.close(modal.id);
+                }
+            }
+        });
+    });
+
+    // ========== ESC KEY ==========
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+            if (ModalManager.current === 'eventModal') {
+                closeEventModalWithCheck();
+            } else if (ModalManager.current) {
+                ModalManager.close(ModalManager.current);
+            }
+        }
+    });
+
+    // ========== NOTIFICATION BELL ==========
+    const notifBell = document.getElementById('notifBell');
+    const notifPanel = document.getElementById('notifPanel');
+    if (notifBell && notifPanel) {
+        notifBell.addEventListener('click', (e) => {
+            e.stopPropagation();
+            notifPanel.classList.toggle('hidden');
+            notificationLog.forEach(n => n.read = true);
+            updateNotifBadge();
+            renderNotifPanel();
+        });
+        document.addEventListener('click', (e) => {
+            if (!notifPanel.contains(e.target) && e.target !== notifBell) {
+                notifPanel.classList.add('hidden');
+            }
+        });
+        document.getElementById('clearAllNotifs')?.addEventListener('click', () => {
+            notificationLog.length = 0;
+            updateNotifBadge();
+            renderNotifPanel();
+        });
+    }
+
+    // ========== EVENT REPEAT PANEL ==========
     const eventRepeatSelect = document.getElementById('eventRepeat');
     if (eventRepeatSelect) {
         eventRepeatSelect.addEventListener('change', () => {
@@ -334,6 +374,8 @@ window.addEventListener('DOMContentLoaded', async () => {
         });
         eventRepeatSelect.dispatchEvent(new Event('change'));
     }
+
+    // Weekly days container for event modal
     const weeklyContainer = document.getElementById('weeklyDaysContainer');
     if (weeklyContainer && weeklyContainer.children.length === 0) {
         const days = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
@@ -344,6 +386,7 @@ window.addEventListener('DOMContentLoaded', async () => {
         `).join('');
     }
 
+    // ========== DARK MODE TOGGLE ==========
     const darkToggle = document.getElementById('darkModeToggle');
     if (darkToggle) {
         darkToggle.addEventListener('change', async (e) => {
@@ -354,6 +397,7 @@ window.addEventListener('DOMContentLoaded', async () => {
         });
     }
 
+    // ========== DRAFT MANAGERS ==========
     eventDraftManager = new FormDraft('eventModal', 'eventDraft', {
         priority: {
             read: (modal) => modal.querySelectorAll('#eventPriorityStars .fa-star.selected').length,
@@ -364,7 +408,7 @@ window.addEventListener('DOMContentLoaded', async () => {
                     else star.classList.remove('selected');
                 });
                 const desc = document.getElementById('priorityDesc');
-                if (desc) desc.innerText = value === 1 ? 'Lowest priority' : value === 2 ? 'Low priority' : value === 3 ? 'Normal priority' : value === 4 ? 'High priority' : 'Highest priority';
+                if (desc) desc.innerText = getPriorityLabel(value);
             }
         },
         weeklyDays: {
@@ -394,6 +438,7 @@ window.addEventListener('DOMContentLoaded', async () => {
         }
     });
 
+    // ========== SETTINGS MODAL ==========
     const settingsModal = document.getElementById('settingsModal');
     const closeSettingsX = document.getElementById('closeSettingsModal');
     const settingsDone = document.getElementById('settingsDoneBtn');
@@ -409,6 +454,19 @@ window.addEventListener('DOMContentLoaded', async () => {
         });
     }
 
+    // Settings button opens and refreshes lists
+    document.getElementById('settingsBtn')?.addEventListener('click', () => {
+        if (settingsModal) {
+            // Reset to preferences tab
+            const prefTab = Array.from(document.querySelectorAll('.settings-tab')).find(t => t.dataset.tab === 'preferences');
+            if (prefTab) prefTab.click();
+            ModalManager.open('settingsModal');
+            renderPlacesList();
+            renderBusyBlocksList();
+        }
+    });
+
+    // Settings tabs
     setupSettingsTabs();
 
     const nextBtn = document.getElementById('settingsNextBtn');
@@ -459,11 +517,11 @@ window.addEventListener('DOMContentLoaded', async () => {
     });
     switchTab('preferences');
 
+    // ========== SAVE EVENT ==========
     const saveEventBtn = document.getElementById('saveEventBtn');
     if (saveEventBtn) {
         saveEventBtn.addEventListener('click', async () => {
             const spinner = saveEventBtn.querySelector('.fa-spinner');
-            const btnText = saveEventBtn.querySelector('span');
             saveEventBtn.disabled = true;
             if (spinner) spinner.classList.remove('hidden');
             try {
@@ -507,7 +565,7 @@ window.addEventListener('DOMContentLoaded', async () => {
                 }
                 if (eventDraftManager) await eventDraftManager.clearDraft();
                 await fullRefresh();
-                document.getElementById('eventModal').classList.add('hidden');
+                ModalManager.close('eventModal');
             } finally {
                 saveEventBtn.disabled = false;
                 if (spinner) spinner.classList.add('hidden');
@@ -515,51 +573,71 @@ window.addEventListener('DOMContentLoaded', async () => {
         });
     }
 
-    const saveBusyBtn = document.getElementById('saveBusyBtn');
-    if (saveBusyBtn) {
-        saveBusyBtn.addEventListener('click', async () => {
-            const busy = {
-                description: document.getElementById('busyDescription').value,
-                hard: document.getElementById('busyHard').checked,
-                recurrence: document.getElementById('busyRecurrence').value,
-                startTime: document.getElementById('busyStartTime').value,
-                endTime: document.getElementById('busyEndTime').value,
-                allDay: document.getElementById('busyAllDay').checked,
-                tag: document.getElementById('busyTag').value
-            };
-            if (busy.recurrence === 'once') busy.date = document.getElementById('busyDate').value;
-            if (busy.recurrence === 'daterange') {
-                busy.startDate = document.getElementById('busyRangeStart').value;
-                busy.endDate = document.getElementById('busyRangeEnd').value;
-            }
-            if (busy.recurrence === 'weekly') {
-                busy.daysOfWeek = Array.from(document.querySelectorAll('#busyDaysCheckboxes input:checked')).map(cb => parseInt(cb.value));
-            }
-            await addRecord('busyBlocks', busy);
-            if (busyDraftManager) await busyDraftManager.clearDraft();
-            await fullRefresh();
-            document.getElementById('busyModal').classList.add('hidden');
-        });
+    // ========== SAVE BUSY (shared logic) ==========
+    async function saveBusyBlockFromForm() {
+        const busy = {
+            description: document.getElementById('busyDescription').value,
+            hard: document.getElementById('busyHard').checked,
+            recurrence: document.getElementById('busyRecurrence').value,
+            startTime: document.getElementById('busyStartTime').value,
+            endTime: document.getElementById('busyEndTime').value,
+            allDay: document.getElementById('busyAllDay').checked,
+            tag: document.getElementById('busyTag').value
+        };
+        if (busy.recurrence === 'once') busy.date = document.getElementById('busyDate').value;
+        if (busy.recurrence === 'daterange') {
+            busy.startDate = document.getElementById('busyRangeStart').value;
+            busy.endDate = document.getElementById('busyRangeEnd').value;
+        }
+        if (busy.recurrence === 'weekly') {
+            busy.daysOfWeek = Array.from(document.querySelectorAll('#busyDaysCheckboxes input:checked')).map(cb => parseInt(cb.value));
+        }
+        await addRecord('busyBlocks', busy);
+        if (busyDraftManager) await busyDraftManager.clearDraft();
+        await detectConflicts();
+        await renderCalendar();
+        return busy;
     }
 
-    document.getElementById('closeEventModal')?.addEventListener('click', () => {
-        document.getElementById('eventModal').classList.add('hidden');
+    document.getElementById('saveBusyBtn')?.addEventListener('click', async () => {
+        await saveBusyBlockFromForm();
+        ModalManager.close('busyModal');
+        await fullRefresh();
     });
-    document.getElementById('cancelEventBtn')?.addEventListener('click', () => {
-        document.getElementById('eventModal').classList.add('hidden');
+
+    document.getElementById('saveAddAnotherBusyBtn')?.addEventListener('click', async () => {
+        await saveBusyBlockFromForm();
+        // Reset form
+        document.getElementById('busyDescription').value = '';
+        document.getElementById('busyDate').value = '';
+        document.getElementById('busyStartTime').value = '09:00';
+        document.getElementById('busyEndTime').value = '17:00';
+        document.querySelectorAll('#busyDaysCheckboxes input').forEach(cb => cb.checked = false);
+        document.getElementById('busyDescription').focus();
+        showToast('Saved — add another', 'success');
     });
-    document.getElementById('closeBusyModal')?.addEventListener('click', () => {
-        document.getElementById('busyModal').classList.add('hidden');
+
+    // ========== BUSY RECURRENCE CHANGE ==========
+    document.getElementById('busyRecurrence')?.addEventListener('change', (e) => {
+        const val = e.target.value;
+        document.getElementById('busyDateSingle').classList.toggle('hidden', val !== 'once');
+        document.getElementById('busyDateRange').classList.toggle('hidden', val !== 'daterange');
+        document.getElementById('busyWeeklyDays').classList.toggle('hidden', val !== 'weekly');
     });
-    document.getElementById('cancelBusyBtn')?.addEventListener('click', () => {
-        document.getElementById('busyModal').classList.add('hidden');
-    });
+    document.getElementById('busyRecurrence')?.dispatchEvent(new Event('change'));
+
+    // ========== MODAL CANCEL/CLOSE ==========
+    document.getElementById('cancelEventBtn')?.addEventListener('click', closeEventModalWithCheck);
+    document.getElementById('closeEventModal')?.addEventListener('click', closeEventModalWithCheck);
+    document.getElementById('closeBusyModal')?.addEventListener('click', () => ModalManager.close('busyModal'));
+    document.getElementById('cancelBusyBtn')?.addEventListener('click', () => ModalManager.close('busyModal'));
     document.getElementById('clearDraftBtn')?.addEventListener('click', async () => {
         if (eventDraftManager) await eventDraftManager.clearDraft();
-        document.getElementById('draftBanner').classList.add('hidden');
+        document.getElementById('draftBanner')?.classList.add('hidden');
         showToast('Draft cleared', 'success');
     });
 
+    // ========== SETTINGS LISTENERS ==========
     document.getElementById('restPolicySelect')?.addEventListener('change', async (e) => {
         restPolicy = e.target.value;
         await setSetting('restPolicy', restPolicy);
@@ -601,6 +679,7 @@ window.addEventListener('DOMContentLoaded', async () => {
         updateNotifications();
     });
 
+    // ========== ADVANCED OPTIONS TOGGLE ==========
     const toggleAdvancedBtn = document.getElementById('toggleAdvancedBtn');
     if (toggleAdvancedBtn) {
         toggleAdvancedBtn.addEventListener('click', () => {
@@ -609,6 +688,7 @@ window.addEventListener('DOMContentLoaded', async () => {
         });
     }
 
+    // ========== EXPORT/IMPORT/RESET ==========
     document.getElementById('exportDataBtn')?.addEventListener('click', async () => {
         const data = { events, busyBlocks, places, overrides: Array.from(overrides.values()) };
         const blob = new Blob([JSON.stringify(data)], { type: 'application/json' });
@@ -660,16 +740,7 @@ window.addEventListener('DOMContentLoaded', async () => {
         }
     });
 
-    if (Notification.permission === "default") Notification.requestPermission();
-
-    document.addEventListener('keydown', (e) => {
-        if (e.key === 'Escape') {
-            document.querySelectorAll('.modal-backdrop:not(.hidden)').forEach(modal => {
-                modal.classList.add('hidden');
-            });
-        }
-    });
-
+    // ========== SWIPE NAVIGATION ==========
     let touchStartX = 0;
     let touchEndX = 0;
     const calendarContainer = document.getElementById('calendarContainer');
@@ -690,4 +761,7 @@ window.addEventListener('DOMContentLoaded', async () => {
             }
         });
     }
+
+    // ========== NOTIFICATION PERMISSION ==========
+    if (Notification.permission === "default") Notification.requestPermission();
 });
