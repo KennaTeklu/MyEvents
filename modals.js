@@ -350,7 +350,7 @@ function openBusyModal(busy = null, dateStr = null) {
     document.getElementById('busyRecurrence')?.dispatchEvent(new Event('change'));
 }
 
-// ========== CONTEXT MENU ==========
+// ========== CONTEXT MENU (with boundary) ==========
 function showContextMenu(x, y, eventId, dateStr) {
     const menu = document.getElementById('contextMenu');
     if (!menu) return;
@@ -362,8 +362,20 @@ function showContextMenu(x, y, eventId, dateStr) {
     document.getElementById('ctxEdit').innerHTML = `<i class="fas fa-edit"></i> Edit`;
     document.getElementById('ctxNoGo').innerHTML = isNogo ? `<i class="fas fa-check-circle"></i> Unskip` : `<i class="fas fa-ban"></i> Skip (No Go)`;
     document.getElementById('ctxLock').innerHTML = isLocked ? `<i class="fas fa-unlock"></i> Unlock` : `<i class="fas fa-lock"></i> Don't move`;
-    menu.style.left = x + 'px';
-    menu.style.top = y + 'px';
+    
+    // Adjust position to stay within viewport
+    const rect = menu.getBoundingClientRect();
+    let left = x;
+    let top = y;
+    const viewportWidth = window.innerWidth;
+    const viewportHeight = window.innerHeight;
+    if (left + rect.width > viewportWidth) left = viewportWidth - rect.width - 10;
+    if (top + rect.height > viewportHeight) top = viewportHeight - rect.height - 10;
+    if (left < 10) left = 10;
+    if (top < 10) top = 10;
+    
+    menu.style.left = left + 'px';
+    menu.style.top = top + 'px';
     menu.classList.remove('hidden');
     const close = () => {
         menu.classList.add('hidden');
