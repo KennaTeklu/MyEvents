@@ -1,10 +1,7 @@
-// ==================== MODALS ====================
-let editingEventId = null;
-let editingDateStr = null;
-let eventDraftManager = null;
-let busyDraftManager = null;
+// modals.js - Modal handling for events, busy blocks, and context menu
+// Must be loaded after state.js, utils.js, db.js, calendar.js
 
-// FormDraft class
+// ========== FORM DRAFT CLASS ==========
 class FormDraft {
     constructor(modalId, key, customHandlers = {}) {
         this.modal = document.getElementById(modalId);
@@ -17,6 +14,7 @@ class FormDraft {
         if (!window._draftManagers) window._draftManagers = [];
         window._draftManagers.push(this);
     }
+
     capture() {
         const formData = {};
         const inputs = this.modal.querySelectorAll('input, select, textarea');
@@ -34,6 +32,7 @@ class FormDraft {
         }
         return formData;
     }
+
     restore(data) {
         if (!data) return;
         const inputs = this.modal.querySelectorAll('input, select, textarea');
@@ -50,14 +49,17 @@ class FormDraft {
             if (handler.write && data[key] !== undefined) handler.write(this.modal, data[key]);
         }
     }
+
     async saveDraft() {
         const draft = this.capture();
         await saveDraft(this.key, draft);
         this.saveToLocalStorage(draft);
     }
+
     saveToLocalStorage(draft) {
         localStorage.setItem(`draft_${this.key}`, JSON.stringify(draft));
     }
+
     async loadDraft() {
         let draft = await loadDraft(this.key);
         if (!draft) {
@@ -70,14 +72,17 @@ class FormDraft {
         }
         if (draft) this.restore(draft);
     }
+
     async clearDraft() {
         await clearDraft(this.key);
         localStorage.removeItem(`draft_${this.key}`);
     }
+
     flushSync() {
         const draft = this.capture();
         this.saveToLocalStorage(draft);
     }
+
     setupListeners() {
         const debouncedSave = () => {
             if (this.saveTimer) clearTimeout(this.saveTimer);
@@ -90,9 +95,51 @@ class FormDraft {
     }
 }
 
+// ========== EVENT MODAL ==========
+let eventFormSnapshot = {};
+
 function openEventModal(event = null, dateStr = null) {
     const modal = document.getElementById('eventModal');
     if (!modal) return;
+
+    // Update title
+    const titleEl = modal.querySelector('h3');
+    if (titleEl) titleEl.textContent = event ? 'Edit event' : 'Add event';
+
+    // Hide draft banner until we know
+    const draftBanner = document.getElementById('draftBanner');
+    if (draftBanner) draftBanner.classList.add('hidden');
+
+    function buildColorPalette(selectedColor) {
+        const palette = document.getElementById('colorPalette');
+        if (!palette) return;
+        const colors = [
+            '#3b82f6', '#10b981', '#f59e0b', '#ef4444',
+            '#8b5cf6', '#ec4899', '#06b6d4', '#84cc16',
+            '#f97316', '#64748b'
+        ];
+        palette.innerHTML = colors.map(c =>
+            `<div class="color-swatch ${c === selectedColor ? 'selected' : ''}" 
+                style="background:${c};" 
+                data-color="${c}" 
+                role="radio" 
+                aria-label="Color ${c}" 
+                tabindex="0"></div>`
+        ).join('');
+        palette.querySelectorAll('.color-swatch').forEach(swatch => {
+            const select = () => {
+                palette.querySelectorAll('.color-swatch').forEach(s => s.classList.remove('selected'));
+                swatch.classList.add('selected');
+                const hidden = document.getElementById('eventColor');
+                if (hidden) hidden.value = swatch.dataset.color;
+                if (eventDraftManager) eventDraftManager.saveDraft();
+            };
+            swatch.addEventListener('click', select);
+            swatch.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); select(); }
+            });
+        });
+    }
 
     function populateForm(data) {
         document.getElementById('eventName').value = data.name || '';
@@ -106,38 +153,60 @@ function openEventModal(event = null, dateStr = null) {
         document.getElementById('eventFrequency').value = data.frequency || 'unlimited';
         document.getElementById('eventScarce').checked = !!data.scarce;
         document.getElementById('eventRemindRecency').checked = !!data.remindRecency;
-
-        const colorPalette = document.getElementById('colorPalette');
-        if (colorPalette) {
-            const colors = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec489a', '#06b6d4', '#84cc16'];
-            colorPalette.innerHTML = colors.map(c => `<div class="w-6 h-6 rounded-full cursor-pointer border-2 ${c === data.color ? 'border-black dark:border-white' : 'border-transparent'}" style="background-color:${c};" data-color="${c}"></div>`).join('');
-            colorPalette.querySelectorAll('[data-color]').forEach(swatch => {
-                swatch.addEventListener('click', () => {
-                    document.getElementById('eventColor').value = swatch.dataset.color;
-                    colorPalette.querySelectorAll('[data-color]').forEach(s => s.classList.remove('border-black', 'dark:border-white'));
-                    swatch.classList.add('border-black', 'dark:border-white');
-                });
-            });
-        }
         document.getElementById('eventColor').value = data.color || '#3b82f6';
+
+        buildColorPalette(data.color || '#3b82f6');
 
         const stars = document.querySelectorAll('#eventPriorityStars .fa-star');
         const priority = data.priority ?? 3;
         stars.forEach((star, idx) => {
-            if (idx < priority) star.classList.add('selected');
-            else star.classList.remove('selected');
+            star.classList.toggle('selected', idx < priority);
+            // Remove previous listener to avoid stacking
+            const newStar = star.cloneNode(true);
+            star.parentNode.replaceChild(newStar, star);
         });
-        document.getElementById('priorityDesc').innerText = priority === 1 ? 'Lowest priority' : priority === 2 ? 'Low priority' : priority === 3 ? 'Normal priority' : priority === 4 ? 'High priority' : 'Highest priority';
-
-        if (data.weeklyDays && data.weeklyDays.length) {
-            const weeklyChecks = document.querySelectorAll('#weeklyDaysContainer input');
-            weeklyChecks.forEach(cb => {
-                cb.checked = data.weeklyDays.includes(parseInt(cb.value));
+        // Re-attach star listeners
+        document.querySelectorAll('#eventPriorityStars .fa-star').forEach((star, idx) => {
+            star.addEventListener('click', () => {
+                const prio = idx + 1;
+                document.querySelectorAll('#eventPriorityStars .fa-star').forEach((s, i) => {
+                    s.classList.toggle('selected', i < prio);
+                });
+                const desc = document.getElementById('priorityDesc');
+                if (desc) desc.innerText = getPriorityLabel(prio);
+                if (eventDraftManager) eventDraftManager.saveDraft();
             });
-        } else {
-            document.querySelectorAll('#weeklyDaysContainer input').forEach(cb => cb.checked = false);
-        }
+        });
+        const desc = document.getElementById('priorityDesc');
+        if (desc) desc.innerText = getPriorityLabel(priority);
+
+        // Weekly days
+        document.querySelectorAll('#weeklyDaysContainer input').forEach(cb => {
+            cb.checked = !!(data.weeklyDays && data.weeklyDays.includes(parseInt(cb.value)));
+        });
         document.getElementById('monthlyDay').value = data.monthlyDay ?? 1;
+
+        // Collapse advanced if empty form, keep open if editing
+        const adv = document.getElementById('advancedOptions');
+        const advBtn = document.getElementById('toggleAdvancedBtn');
+        if (adv && advBtn) {
+            if (event && (data.frequency !== 'unlimited' || data.scarce || data.remindRecency || data.priority !== 3)) {
+                adv.classList.remove('hidden');
+                advBtn.textContent = 'Hide advanced options';
+            } else {
+                adv.classList.add('hidden');
+                advBtn.textContent = 'Show advanced options';
+            }
+        }
+
+        // Snapshot for dirty detection
+        eventFormSnapshot = {
+            eventName: data.name || '',
+            eventOpenTime: data.openTime || '09:00',
+            eventCloseTime: data.closeTime || '17:00',
+            eventMinStay: String(data.minStay ?? 30),
+            eventNotes: data.notes || ''
+        };
     }
 
     if (event) {
@@ -145,121 +214,143 @@ function openEventModal(event = null, dateStr = null) {
         editingEventId = event.id;
         editingDateStr = dateStr || null;
         if (eventDraftManager) eventDraftManager.clearDraft();
-        modal.classList.remove('hidden');
-        const repeatSelect = document.getElementById('eventRepeat');
-        if (repeatSelect) repeatSelect.dispatchEvent(new Event('change'));
-        modal.scrollTop = 0;
+        ModalManager.open('eventModal');
+        document.getElementById('eventRepeat')?.dispatchEvent(new Event('change'));
         return;
     }
 
+    // New event path — load draft
+    editingEventId = null;
+    editingDateStr = dateStr || null;
+
     if (eventDraftManager) {
         eventDraftManager.loadDraft().then(() => {
-            editingEventId = null;
-            editingDateStr = dateStr || null;
-            modal.classList.remove('hidden');
-            const repeatSelect = document.getElementById('eventRepeat');
-            if (repeatSelect) repeatSelect.dispatchEvent(new Event('change'));
-            modal.scrollTop = 0;
-            const draftBanner = document.getElementById('draftBanner');
-            if (draftBanner) draftBanner.classList.remove('hidden');
+            const draft = localStorage.getItem(`draft_${eventDraftManager.key}`);
+            if (draft) {
+                if (draftBanner) draftBanner.classList.remove('hidden');
+                buildColorPalette(document.getElementById('eventColor')?.value || '#3b82f6');
+            } else {
+                populateForm({});
+            }
+            ModalManager.open('eventModal');
+            document.getElementById('eventRepeat')?.dispatchEvent(new Event('change'));
         }).catch(() => {
             populateForm({});
-            editingEventId = null;
-            editingDateStr = dateStr || null;
-            modal.classList.remove('hidden');
-            const repeatSelect = document.getElementById('eventRepeat');
-            if (repeatSelect) repeatSelect.dispatchEvent(new Event('change'));
-            modal.scrollTop = 0;
+            ModalManager.open('eventModal');
+            document.getElementById('eventRepeat')?.dispatchEvent(new Event('change'));
         });
     } else {
         populateForm({});
-        editingEventId = null;
-        editingDateStr = dateStr || null;
-        modal.classList.remove('hidden');
-        const repeatSelect = document.getElementById('eventRepeat');
-        if (repeatSelect) repeatSelect.dispatchEvent(new Event('change'));
-        modal.scrollTop = 0;
+        ModalManager.open('eventModal');
+        document.getElementById('eventRepeat')?.dispatchEvent(new Event('change'));
     }
 }
 
+function closeEventModalWithCheck() {
+    if (isFormDirty('eventModal', eventFormSnapshot)) {
+        // Show inline confirmation inside the modal instead of browser confirm
+        const existing = document.getElementById('dirtyWarning');
+        if (existing) { existing.remove(); return; }
+        const modal = document.getElementById('eventModal');
+        const footer = modal.querySelector('.flex.gap-2.justify-end');
+        const warning = document.createElement('div');
+        warning.id = 'dirtyWarning';
+        warning.className = 'modal-dirty-warning mt-2';
+        warning.innerHTML = `
+            <span>You have unsaved changes.</span>
+            <div class="flex gap-2">
+                <button id="discardChangesBtn" class="text-xs bg-red-100 text-red-700 px-3 py-1 rounded-full">Discard</button>
+                <button id="keepEditingBtn" class="text-xs bg-gray-200 px-3 py-1 rounded-full">Keep editing</button>
+            </div>
+        `;
+        footer.insertAdjacentElement('afterend', warning);
+        document.getElementById('discardChangesBtn').onclick = () => {
+            warning.remove();
+            ModalManager.close('eventModal');
+        };
+        document.getElementById('keepEditingBtn').onclick = () => warning.remove();
+    } else {
+        ModalManager.close('eventModal');
+    }
+}
+
+// ========== BUSY MODAL ==========
 function openBusyModal(busy = null, dateStr = null) {
     const modal = document.getElementById('busyModal');
     if (!modal) return;
 
+    // Always rebuild checkboxes with weekday shortcuts
     const busyDaysDiv = document.getElementById('busyDaysCheckboxes');
     if (busyDaysDiv) {
         const days = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
-        busyDaysDiv.innerHTML = days.map((d, i) => `
-            <label class="inline-flex items-center gap-1">
-                <input type="checkbox" value="${i}" name="busy_weekly_day_${i}"> ${d}
-            </label>
-        `).join('');
-    }
-    if (busy) {
-        document.getElementById('busyDescription').value = busy.description || '';
-        document.getElementById('busyHard').checked = busy.hard || false;
-        document.getElementById('busyRecurrence').value = busy.recurrence || 'once';
-        document.getElementById('busyDate').value = busy.date || dateStr || '';
-        document.getElementById('busyRangeStart').value = busy.startDate || '';
-        document.getElementById('busyRangeEnd').value = busy.endDate || '';
-        document.getElementById('busyStartTime').value = busy.startTime || '09:00';
-        document.getElementById('busyEndTime').value = busy.endTime || '17:00';
-        document.getElementById('busyAllDay').checked = busy.allDay || false;
-        document.getElementById('busyTag').value = busy.tag || '';
-
-        if (busy.recurrence === 'weekly' && busy.daysOfWeek) {
-            const checkboxes = document.querySelectorAll('#busyDaysCheckboxes input');
-            checkboxes.forEach(cb => {
-                cb.checked = busy.daysOfWeek.includes(parseInt(cb.value));
+        busyDaysDiv.innerHTML = `
+            <div class="flex gap-2 mb-2 flex-wrap">
+                <button type="button" class="weekday-selectall" id="selectWeekdays">Weekdays</button>
+                <button type="button" class="weekday-selectall" id="selectWeekends">Weekends</button>
+                <button type="button" class="weekday-selectall" id="selectAllDays">All</button>
+                <button type="button" class="weekday-selectall" id="clearAllDays">Clear</button>
+            </div>
+            <div class="flex flex-wrap gap-2">
+                ${days.map((d, i) => `
+                    <label class="inline-flex items-center gap-1 cursor-pointer select-none">
+                        <input type="checkbox" value="${i}" name="busy_weekly_day_${i}" class="cursor-pointer"> ${d}
+                    </label>
+                `).join('')}
+            </div>
+        `;
+        document.getElementById('selectWeekdays').onclick = () => {
+            document.querySelectorAll('#busyDaysCheckboxes input').forEach(cb => {
+                cb.checked = [1,2,3,4,5].includes(parseInt(cb.value));
             });
-        } else {
+        };
+        document.getElementById('selectWeekends').onclick = () => {
+            document.querySelectorAll('#busyDaysCheckboxes input').forEach(cb => {
+                cb.checked = [0,6].includes(parseInt(cb.value));
+            });
+        };
+        document.getElementById('selectAllDays').onclick = () => {
+            document.querySelectorAll('#busyDaysCheckboxes input').forEach(cb => cb.checked = true);
+        };
+        document.getElementById('clearAllDays').onclick = () => {
             document.querySelectorAll('#busyDaysCheckboxes input').forEach(cb => cb.checked = false);
-        }
+        };
+    }
 
+    function populate(data) {
+        document.getElementById('busyDescription').value = data.description || '';
+        document.getElementById('busyHard').checked = data.hard || false;
+        document.getElementById('busyRecurrence').value = data.recurrence || 'once';
+        document.getElementById('busyDate').value = data.date || dateStr || formatDate(new Date());
+        document.getElementById('busyRangeStart').value = data.startDate || '';
+        document.getElementById('busyRangeEnd').value = data.endDate || '';
+        document.getElementById('busyStartTime').value = data.startTime || '09:00';
+        document.getElementById('busyEndTime').value = data.endTime || '17:00';
+        document.getElementById('busyAllDay').checked = data.allDay || false;
+        document.getElementById('busyTag').value = data.tag || '';
+        if (data.daysOfWeek) {
+            document.querySelectorAll('#busyDaysCheckboxes input').forEach(cb => {
+                cb.checked = data.daysOfWeek.includes(parseInt(cb.value));
+            });
+        }
+    }
+
+    if (busy) {
+        populate(busy);
         if (busyDraftManager) busyDraftManager.clearDraft();
-        modal.classList.remove('hidden');
-        const recurSelect = document.getElementById('busyRecurrence');
-        const weeklyDiv = document.getElementById('busyWeeklyDays');
-        if (recurSelect && weeklyDiv) {
-            if (recurSelect.value === 'weekly') {
-                weeklyDiv.classList.remove('hidden');
-            } else {
-                weeklyDiv.classList.add('hidden');
-            }
-        }
-        if (recurSelect) recurSelect.dispatchEvent(new Event('change'));
-        modal.scrollTop = 0;
-        return;
+    } else if (busyDraftManager) {
+        busyDraftManager.loadDraft().then(draft => {
+            if (draft) busyDraftManager.restore(draft);
+            else populate({ date: dateStr || formatDate(new Date()) });
+        }).catch(() => populate({ date: dateStr || formatDate(new Date()) }));
+    } else {
+        populate({ date: dateStr || formatDate(new Date()) });
     }
 
-    if (busyDraftManager) {
-        busyDraftManager.loadDraft().then(() => {
-            modal.classList.remove('hidden');
-            const recurSelect = document.getElementById('busyRecurrence');
-            if (recurSelect) recurSelect.dispatchEvent(new Event('change'));
-            modal.scrollTop = 0;
-        }).catch(() => {
-            document.getElementById('busyDescription').value = '';
-            document.getElementById('busyHard').checked = false;
-            document.getElementById('busyRecurrence').value = 'once';
-            document.getElementById('busyDate').value = '';
-            document.getElementById('busyRangeStart').value = '';
-            document.getElementById('busyRangeEnd').value = '';
-            document.getElementById('busyStartTime').value = '09:00';
-            document.getElementById('busyEndTime').value = '17:00';
-            document.getElementById('busyAllDay').checked = false;
-            document.getElementById('busyTag').value = '';
-            document.querySelectorAll('#busyDaysCheckboxes input').forEach(cb => cb.checked = false);
-            modal.classList.remove('hidden');
-            const recurSelect = document.getElementById('busyRecurrence');
-            if (recurSelect) recurSelect.dispatchEvent(new Event('change'));
-            modal.scrollTop = 0;
-        });
-    } else {
-        modal.classList.remove('hidden');
-    }
+    ModalManager.open('busyModal');
+    document.getElementById('busyRecurrence')?.dispatchEvent(new Event('change'));
 }
 
+// ========== CONTEXT MENU ==========
 function showContextMenu(x, y, eventId, dateStr) {
     const menu = document.getElementById('contextMenu');
     if (!menu) return;
@@ -307,62 +398,4 @@ function showContextMenu(x, y, eventId, dateStr) {
         close();
     };
     setTimeout(() => document.addEventListener('click', close), 10);
-}
-
-function attachCalendarEvents() {
-    const container = document.getElementById('calendarGrid');
-    if (!container) return;
-    const clickHandler = (e) => {
-        const eventBlock = e.target.closest('.event-block, .event-block-month');
-        if (eventBlock) {
-            e.stopPropagation();
-            const id = parseInt(eventBlock.dataset.id);
-            const dateStr = eventBlock.dataset.date;
-            const ev = events.find(e => e.id === id);
-            if (ev) openEventModal(ev, dateStr);
-        }
-    };
-    container.addEventListener('click', clickHandler);
-    const contextHandler = (e) => {
-        const eventBlock = e.target.closest('.event-block, .event-block-month');
-        if (eventBlock) {
-            e.preventDefault();
-            const id = parseInt(eventBlock.dataset.id);
-            const dateStr = eventBlock.dataset.date;
-            showContextMenu(e.clientX, e.clientY, id, dateStr);
-        }
-        const dayCell = e.target.closest('.day-cell');
-        if (dayCell && !eventBlock) {
-            e.preventDefault();
-            openBusyModal(null, dayCell.dataset.date);
-        }
-    };
-    container.addEventListener('contextmenu', contextHandler);
-    let pressTimer = null;
-    const attachLongPress = (element, callback) => {
-        element.addEventListener('touchstart', (e) => {
-            pressTimer = setTimeout(() => {
-                callback(e);
-                e.preventDefault();
-            }, 500);
-        });
-        element.addEventListener('touchend', () => {
-            if (pressTimer) clearTimeout(pressTimer);
-        });
-        element.addEventListener('touchmove', () => {
-            if (pressTimer) clearTimeout(pressTimer);
-        });
-    };
-    document.querySelectorAll('.event-block, .event-block-month').forEach(block => {
-        attachLongPress(block, (e) => {
-            const id = parseInt(block.dataset.id);
-            const dateStr = block.dataset.date;
-            showContextMenu(e.touches[0].clientX, e.touches[0].clientY, id, dateStr);
-        });
-    });
-    document.querySelectorAll('.day-cell').forEach(cell => {
-        attachLongPress(cell, (e) => {
-            openBusyModal(null, cell.dataset.date);
-        });
-    });
 }
