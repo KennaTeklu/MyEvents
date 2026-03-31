@@ -1,5 +1,11 @@
 // db.js - IndexedDB Persistence & Transaction Engine
-// Must be loaded after state.js
+// Must be loaded after state.js, but before any modules that read/write data.
+// This file handles all low-level IndexedDB operations.
+
+// Internal state for the database connection
+var db = null;
+var dbReady = false;
+var dbQueue = []; // Resolvers for pending operations while DB is opening
 
 const DB_NAME = 'SmartScheduler';
 const DB_VERSION = 9; // Incremented to accommodate the 'overrides' store properly
@@ -24,40 +30,61 @@ async function initDB() {
         request.onsuccess = () => {
             db = request.result;
             dbReady = true;
+            // Resolve any pending queue items
             while (dbQueue.length) dbQueue.shift().resolve();
             resolve(db);
         };
         request.onupgradeneeded = (event) => {
             const db = event.target.result;
-            // Schema Initialization
-            if (!db.objectStoreNames.contains('drafts')) db.createObjectStore('drafts', { keyPath: 'id' });
+            // Create stores if they don't exist
+            if (!db.objectStoreNames.contains('drafts')) {
+                db.createObjectStore('drafts', { keyPath: 'id' });
+            }
             if (!db.objectStoreNames.contains('events')) {
                 const s = db.createObjectStore('events', { keyPath: 'id', autoIncrement: true });
                 s.createIndex('name', 'name');
+                s.createIndex('startDate', 'startDate');
             }
-            if (!db.objectStoreNames.contains('busyBlocks')) db.createObjectStore('busyBlocks', { keyPath: 'id', autoIncrement: true });
-            if (!db.objectStoreNames.contains('places')) db.createObjectStore('places', { keyPath: 'id', autoIncrement: true });
-            
+            if (!db.objectStoreNames.contains('busyBlocks')) {
+                db.createObjectStore('busyBlocks', { keyPath: 'id', autoIncrement: true });
+            }
+            if (!db.objectStoreNames.contains('places')) {
+                db.createObjectStore('places', { keyPath: 'id', autoIncrement: true });
+            }
             // Critical Exception Store: compositeKey is "eventId_YYYY-MM-DD"
-            if (!db.objectStoreNames.contains('overrides')) db.createObjectStore('overrides', { keyPath: 'compositeKey' });
-            
-            if (!db.objectStoreNames.contains('settings')) db.createObjectStore('settings', { keyPath: 'key' });
-            if (!db.objectStoreNames.contains('attendanceLog')) db.createObjectStore('attendanceLog', { keyPath: 'id', autoIncrement: true });
+            if (!db.objectStoreNames.contains('overrides')) {
+                db.createObjectStore('overrides', { keyPath: 'compositeKey' });
+            }
+            if (!db.objectStoreNames.contains('settings')) {
+                db.createObjectStore('settings', { keyPath: 'key' });
+            }
+            if (!db.objectStoreNames.contains('attendanceLog')) {
+                db.createObjectStore('attendanceLog', { keyPath: 'id', autoIncrement: true });
+            }
         };
     });
 }
 
 async function getStore(storeName, mode = 'readonly') {
-    if (!dbReady || !db) await new Promise(resolve => dbQueue.push({ resolve }));
-    return db.transaction(storeName, mode).objectStore(storeName);
+    if (!dbReady || !db) {
+        await new Promise(resolve => dbQueue.push({ resolve }));
+    }
+    // Ensure transaction is active
+    const transaction = db.transaction(storeName, mode);
+    return transaction.objectStore(storeName);
 }
 
 // ========== ATOMIC DATA ACCESS ==========
 
 async function getAll(storeName) {
-    const store = await getStore(storeName);
-    const result = await idbRequest(store.getAll());
-    return result || [];
+    try {
+        const store = await getStore(storeName);
+        const result = await idbRequest(store.getAll());
+        return Array.isArray(result) ? result : [];
+    } catch (e) {
+        console.error(`getAll failed for ${storeName}:`, e);
+        return [];
+    }
 }
 
 async function addRecord(storeName, record) {
@@ -104,9 +131,11 @@ async function clearDraft(type) {
 async function getSetting(key) {
     try {
         const store = await getStore('settings');
-        const res = await idbRequest(store.get(key));
-        return res ? res.value : null;
-    } catch { return null; }
+        const result = await idbRequest(store.get(key));
+        return result ? result.value : null;
+    } catch (e) {
+        return null;
+    }
 }
 
 async function setSetting(key, value) {
