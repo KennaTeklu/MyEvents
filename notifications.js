@@ -1,7 +1,7 @@
-// notifications.js - Notification handling with in-app log and snooze
+// notifications.js - In-app notification management
 // Must be loaded after state.js, utils.js, db.js
 
-// ========== NOTIFICATION LOGGING ==========
+// ========== NOTIFICATION LOG ==========
 function addToNotifLog(msg, eventId) {
     notificationLog.unshift({ msg, eventId, time: new Date(), snoozedUntil: null, read: false });
     if (notificationLog.length > 50) notificationLog.pop();
@@ -31,9 +31,16 @@ function renderNotifPanel() {
                 <div class="font-medium">${escapeHtml(n.msg)}</div>
                 <div class="text-gray-400" style="font-size:0.7rem;">${n.time.toLocaleTimeString()}</div>
             </div>
-            <button class="notif-snooze" onclick="snoozeNotification(${idx})">Snooze 10m</button>
+            <button class="notif-snooze" data-idx="${idx}">Snooze 10m</button>
         </div>
     `).join('');
+    // Attach snooze handlers
+    document.querySelectorAll('.notif-snooze').forEach(btn => {
+        btn.onclick = (e) => {
+            const idx = parseInt(btn.dataset.idx);
+            if (!isNaN(idx)) snoozeNotification(idx);
+        };
+    });
 }
 
 function snoozeNotification(idx) {
@@ -41,12 +48,12 @@ function snoozeNotification(idx) {
     if (!notif) return;
     notif.snoozedUntil = new Date(Date.now() + 10 * 60 * 1000);
     notif.read = true;
+    // Remove from shownNotifications set to allow re-notification after snooze? We'll keep as is for simplicity.
     showToast(`Snoozed for 10 minutes`);
     updateNotifBadge();
     renderNotifPanel();
 }
 
-// ========== OS NOTIFICATION WITH DEDUPLICATION ==========
 function fireNotification(msg, ev) {
     // In-app toast always
     showToast(msg, 'info');
@@ -56,14 +63,14 @@ function fireNotification(msg, ev) {
         new Notification(msg, {
             body: ev.notes ? ev.notes.slice(0, 80) : '',
             icon: '/favicon.ico',
-            tag: `event_${ev.id}`
+            tag: `event_${ev.id}` // prevents duplicate OS notifications
         });
     } else if (Notification.permission !== "denied") {
         Notification.requestPermission();
     }
 }
 
-// ========== MAIN NOTIFICATION LOOP ==========
+// ========== NOTIFICATION SCHEDULER ==========
 function updateNotifications() {
     if (notificationInterval) clearInterval(notificationInterval);
     
@@ -86,10 +93,14 @@ function updateNotifications() {
             if (diffDays === 1 && notifyDayBefore) {
                 const key = `${ev.id}_daybefore_${eventDateStr}`;
                 if (!shownNotifications.has(key)) {
-                    const msg = `Tomorrow: ${ev.name} at ${formatTime(toMinutes(ev.startTime))}`;
-                    fireNotification(msg, ev);
-                    shownNotifications.add(key);
-                    addToNotifLog(msg, ev.id);
+                    // Check if snoozed
+                    const logEntry = notificationLog.find(n => n.eventId === ev.id && n.snoozedUntil && n.snoozedUntil > now);
+                    if (!logEntry) {
+                        const msg = `Tomorrow: ${ev.name} at ${formatTime(toMinutes(ev.startTime))}`;
+                        fireNotification(msg, ev);
+                        shownNotifications.add(key);
+                        addToNotifLog(msg, ev.id);
+                    }
                 }
             }
 
@@ -98,7 +109,6 @@ function updateNotifications() {
                 const bucket = Math.floor(diffMins / 10);
                 const key = `${ev.id}_pre_${bucket}_${eventDateStr}`;
                 if (!shownNotifications.has(key)) {
-                    // Check if snoozed
                     const logEntry = notificationLog.find(n => n.eventId === ev.id && n.snoozedUntil && n.snoozedUntil > now);
                     if (!logEntry) {
                         const msg = `${ev.name} starts in ${Math.round(diffMins)} min`;
@@ -115,15 +125,18 @@ function updateNotifications() {
             if (eventDateStr === todayStr && nowMin >= leaveMin && nowMin < leaveMin + 2) {
                 const key = `${ev.id}_leave_${eventDateStr}`;
                 if (!shownNotifications.has(key)) {
-                    const msg = `Leave now for ${ev.name} (${travelTime} min travel)`;
-                    fireNotification(msg, ev);
-                    shownNotifications.add(key);
-                    addToNotifLog(msg, ev.id);
+                    const logEntry = notificationLog.find(n => n.eventId === ev.id && n.snoozedUntil && n.snoozedUntil > now);
+                    if (!logEntry) {
+                        const msg = `Leave now for ${ev.name} (${travelTime} min travel)`;
+                        fireNotification(msg, ev);
+                        shownNotifications.add(key);
+                        addToNotifLog(msg, ev.id);
+                    }
                 }
             }
         }
 
-        // Reset at midnight
+        // Reset shown notifications at midnight
         if (now.getHours() === 0 && now.getMinutes() < 2) shownNotifications.clear();
     }, 60000);
 }
