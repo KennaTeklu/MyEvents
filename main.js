@@ -594,15 +594,14 @@ window.addEventListener('DOMContentLoaded', async () => {
         }
         await addRecord('busyBlocks', busy);
         if (busyDraftManager) await busyDraftManager.clearDraft();
-        await detectConflicts();
-        await renderCalendar();
+        // Force a full refresh to reload the updated busy blocks from DB
+        await fullRefresh();
         return busy;
     }
 
     document.getElementById('saveBusyBtn')?.addEventListener('click', async () => {
         await saveBusyBlockFromForm();
         ModalManager.close('busyModal');
-        await fullRefresh();
     });
 
     document.getElementById('saveAddAnotherBusyBtn')?.addEventListener('click', async () => {
