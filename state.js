@@ -1,47 +1,55 @@
-// state.js - Shared global state for Smart Scheduler
-// This file must be loaded before all other scripts
+// state.js - The Chronos Engine Global State
+// This file acts as the Single Source of Truth for the entire application.
+// MUST be loaded before all other modules.
 
-// Core data
-var events = [];
-var busyBlocks = [];
-var places = [];
-var overrides = new Map();
-var attendanceLog = [];
+// ========== DATA STORE ==========
+var events = [];           // Master rules for recurring and single events
+var busyBlocks = [];       // Hard/Soft constraints
+var places = [];           // Geofenced location objects
+var overrides = new Map(); // Exceptions/Skips: Key format "eventID_YYYY-MM-DD"
+var attendanceLog = [];    // Historical record for recency-based reminders
 
-// UI state
-var currentView = 'week';
-var currentDate = new Date();
-var firstDayOfWeek = 1;
-var timeFormat = '12h';
-var darkMode = false;
-var conflicts = [];
+// ========== UI & VIEW STATE ==========
+var currentView = 'week';  // 'week' | 'month'
+var currentDate = new Date(); // The "Anchor Date" for the current view
+var firstDayOfWeek = 1;    // 0=Sun, 1=Mon
+var timeFormat = '12h';    // '12h' | '24h'
+var darkMode = false;      // Persistent preference
 
-// Settings
-var restPolicy = 'home';
-var farMinutes = 10;
+// ========== OPTIMIZER & LOGIC STATE ==========
+var conflicts = [];        // Transient conflict list
+var restPolicy = 'home';   // 'home' | 'far' | 'none'
+var farMinutes = 10;       // Threshold for 'far' rest policy
 var notifyDayBefore = true;
 var notifyMinutesBefore = 60;
 var notifyTravelLead = 5;
-var currentPlaceId = 1;
 
-// GPS
+// ========== GPS & LOCATION ENGINE ==========
+var currentPlaceId = 1;
 var gpsWatchId = null;
 
-// Editing
-var editingEventId = null;
-var editingDateStr = null;
-var eventDraftManager = null;
-var busyDraftManager = null;
+// ========== EDITOR & MODAL STATE ==========
+var editingEventId = null; // ID of event currently being edited
+var editingDateStr = null; // Specific occurrence date being overridden
+var eventDraftManager = null; // Instance of FormDraft class
+var busyDraftManager = null;  // Instance of FormDraft class
 
-// Undo/Redo
-var undoStack = [];
-var redoStack = [];
+// ========== UNDO / REDO COMMAND PATTERN ==========
+var undoStack = []; // Stores JSON snapshots of state
+var redoStack = []; // Stores JSON snapshots for forward travel
 
-// Notifications
-var notificationLog = [];
-var shownNotifications = new Set();
+// ========== NOTIFICATION ENGINE ==========
+var notificationLog = [];       // Persisted notification history
+var shownNotifications = new Set(); // deduplication key-set
 var notificationInterval = null;
 
-// Wizard
+// ========== WIZARD STATE ==========
 var wizardStep = 1;
-var wizardData = {};
+var wizardData = {
+    home: null,
+    eventName: '',
+    openTime: '09:00',
+    closeTime: '17:00',
+    stay: 60,
+    restPolicy: 'home'
+};
