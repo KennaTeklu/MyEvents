@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=yes">
     <title>Smart Scheduler – Polished Final</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
@@ -16,6 +16,12 @@
     </script>
 </head>
 <body class="bg-gray-100 font-sans antialiased">
+
+    <noscript>
+        <div style="text-align:center; padding:2rem; font-family:sans-serif;">
+            Smart Scheduler requires JavaScript. Please enable it in your browser settings.
+        </div>
+    </noscript>
 
     <!-- Loading overlay -->
     <div id="loadingOverlay" class="fixed inset-0 bg-white dark:bg-gray-900 flex items-center justify-center z-50">
@@ -59,6 +65,10 @@
                 <button id="nextBtn" class="px-3 py-1 bg-gray-100 rounded-full"><i class="fas fa-chevron-right"></i></button>
                 <button id="viewToggleBtn" class="px-3 py-1 bg-gray-100 rounded-full"><i class="fas fa-calendar-week"></i> Week</button>
                 <button id="settingsBtn" class="text-gray-500 hover:text-gray-700 text-xl"><i class="fas fa-cog"></i></button>
+                <button id="notifBell" class="text-gray-500 hover:text-gray-700 text-xl relative" aria-label="Notifications">
+                    <i class="fas fa-bell"></i>
+                    <span id="notifBadge" class="hidden">0</span>
+                </button>
             </div>
         </div>
 
@@ -72,8 +82,19 @@
         <i class="fas fa-plus"></i>
     </div>
 
+    <!-- Notification Panel -->
+    <div id="notifPanel" class="hidden">
+        <div class="flex justify-between items-center px-4 py-3 border-b border-gray-100 dark:border-slate-700">
+            <span class="font-semibold text-sm">Notifications</span>
+            <button id="clearAllNotifs" class="text-xs text-blue-600">Clear all</button>
+        </div>
+        <div id="notifList">
+            <div class="text-center text-gray-400 text-sm py-6">No notifications</div>
+        </div>
+    </div>
+
     <!-- Event Modal -->
-    <div id="eventModal" class="modal-backdrop hidden">
+    <div id="eventModal" class="modal-backdrop hidden" data-closeable="true">
         <div class="modal-card">
             <div class="flex justify-between items-center mb-4">
                 <h3 class="text-lg font-bold">Add event</h3>
@@ -105,6 +126,7 @@
                     <label class="block text-sm font-medium mb-1">Color</label>
                     <div id="colorPalette" class="flex gap-2 flex-wrap"></div>
                 </div>
+                <input type="hidden" id="eventColor" value="#3b82f6">
                 <button id="toggleAdvancedBtn" type="button" class="text-sm text-blue-600">Show advanced options</button>
                 <div id="advancedOptions" class="hidden space-y-3 mt-2">
                     <select id="eventFrequency" class="w-full border rounded-xl p-2">
@@ -137,7 +159,7 @@
     </div>
 
     <!-- Busy Modal -->
-    <div id="busyModal" class="modal-backdrop hidden">
+    <div id="busyModal" class="modal-backdrop hidden" data-closeable="true">
         <div class="modal-card">
             <div class="flex justify-between items-center mb-4">
                 <h3 class="text-lg font-bold">Add busy time</h3>
@@ -165,8 +187,9 @@
                 </div>
                 <input type="text" id="busyTag" placeholder="Tag (e.g., Work, School)" class="w-full border rounded-xl p-2">
             </div>
-            <div class="flex justify-end gap-2 mt-4">
+            <div class="flex justify-end gap-2 mt-4 flex-wrap">
                 <button id="cancelBusyBtn" class="px-4 py-2 bg-gray-200 rounded-full">Cancel</button>
+                <button id="saveAddAnotherBusyBtn">Save &amp; Add Another</button>
                 <button id="saveBusyBtn" class="px-4 py-2 bg-blue-600 text-white rounded-full">Save</button>
             </div>
         </div>
@@ -199,7 +222,15 @@
                 <div><label class="block text-sm">Remind me to leave based on travel time (minutes before start)</label><input type="number" id="notifyTravelLead" value="5" class="border rounded-xl p-1 w-24"></div>
             </div>
             <div id="settings-data" class="settings-panel hidden space-y-4">
-                <div class="flex flex-wrap gap-2"><button id="exportDataBtn" class="px-4 py-2 bg-gray-200 rounded-full">Export all data (JSON)</button><button id="importDataBtn" class="px-4 py-2 bg-gray-200 rounded-full">Import data</button><button id="resetAllDataBtn" class="px-4 py-2 bg-red-100 text-red-700 rounded-full">Reset all data</button></div>
+                <div>
+                    <label class="block font-medium mb-2">Busy Blocks</label>
+                    <div id="busyBlocksListContainer" class="max-h-40 overflow-y-auto"></div>
+                </div>
+                <div class="mt-4">
+                    <label class="block font-medium mb-2">Places</label>
+                    <div id="placesListContainer" class="max-h-40 overflow-y-auto"></div>
+                </div>
+                <div class="flex flex-wrap gap-2 mt-2"><button id="exportDataBtn" class="px-4 py-2 bg-gray-200 rounded-full">Export all data (JSON)</button><button id="importDataBtn" class="px-4 py-2 bg-gray-200 rounded-full">Import data</button><button id="resetAllDataBtn" class="px-4 py-2 bg-red-100 text-red-700 rounded-full">Reset all data</button></div>
             </div>
             <div class="flex justify-end mt-6">
                 <button id="settingsNextBtn" class="px-4 py-2 bg-blue-600 text-white rounded-full">Next</button>
@@ -219,6 +250,7 @@
     <div id="toastArea" aria-live="polite"></div>
 
     <!-- Scripts -->
+    <script src="state.js"></script>
     <script src="utils.js"></script>
     <script src="db.js"></script>
     <script src="calendar.js"></script>
