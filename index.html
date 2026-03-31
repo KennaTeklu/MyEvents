@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+    <title>Smart Scheduler – Polished Final</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+    <link rel="stylesheet" href="style.css">
+    <!-- Pre‑apply dark mode to avoid flicker -->
+    <script>
+        (function() {
+            const darkPref = localStorage.getItem('setting_darkMode');
+            if (darkPref === 'true') document.documentElement.classList.add('dark');
+        })();
+    </script>
+</head>
+<body class="bg-gray-100 font-sans antialiased">
+
+    <!-- Loading overlay -->
+    <div id="loadingOverlay" class="fixed inset-0 bg-white dark:bg-gray-900 flex items-center justify-center z-50">
+        <div class="text-center">
+            <div class="loading-spinner mx-auto mb-4"></div>
+            <p>Loading Smart Scheduler...</p>
+        </div>
+    </div>
+
+    <!-- First‑run wizard -->
+    <div id="wizardOverlay" class="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 hidden">
+        <div class="bg-white rounded-2xl w-full max-w-md p-6 shadow-xl">
+            <div class="flex justify-between items-center mb-4">
+                <h2 class="text-xl font-bold">Welcome</h2>
+                <button id="wizardExitBtn" class="text-gray-400 hover:text-gray-600 text-2xl">&times;</button>
+            </div>
+            <div id="wizardStepsContainer"></div>
+            <div class="flex justify-between mt-6">
+                <button id="wizardBackBtn" class="px-4 py-2 bg-gray-200 rounded-full hidden">← Back</button>
+                <button id="wizardNextBtn" class="px-4 py-2 bg-blue-600 text-white rounded-full">Next</button>
+                <button id="wizardFinishBtn" class="px-4 py-2 bg-green-600 text-white rounded-full hidden">Finish</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="mainApp" class="max-w-[1600px] mx-auto p-4 hidden">
+        <!-- Top bar -->
+        <div class="bg-white rounded-2xl shadow-sm p-3 mb-4 flex flex-wrap justify-between items-center">
+            <div class="flex items-center gap-3 flex-wrap">
+                <i class="fas fa-calendar-alt text-blue-600 text-xl"></i>
+                <h1 class="text-xl font-bold">Smart Scheduler</h1>
+                <div id="currentPlaceDisplay" class="text-sm bg-gray-100 px-3 py-1 rounded-full">📍 Home</div>
+                <button id="gpsUpdateBtn" class="text-gray-500 hover:text-blue-600 text-sm"><i class="fas fa-sync-alt"></i> Update location</button>
+                <div id="dateRangeDisplay" class="text-sm font-medium text-gray-600 ml-2"></div>
+            </div>
+            <div class="flex gap-2 mt-2 sm:mt-0">
+                <button id="undoBtn" class="px-3 py-1 bg-gray-100 rounded-full disabled:opacity-50"><i class="fas fa-undo"></i> Undo</button>
+                <button id="redoBtn" class="px-3 py-1 bg-gray-100 rounded-full disabled:opacity-50"><i class="fas fa-redo"></i> Redo</button>
+                <button id="prevBtn" class="px-3 py-1 bg-gray-100 rounded-full"><i class="fas fa-chevron-left"></i></button>
+                <button id="todayBtn" class="px-3 py-1 bg-blue-100 text-blue-700 rounded-full"><i class="fas fa-calendar-day"></i> Today</button>
+                <button id="nextBtn" class="px-3 py-1 bg-gray-100 rounded-full"><i class="fas fa-chevron-right"></i></button>
+                <button id="viewToggleBtn" class="px-3 py-1 bg-gray-100 rounded-full"><i class="fas fa-calendar-week"></i> Week</button>
+                <button id="settingsBtn" class="text-gray-500 hover:text-gray-700 text-xl"><i class="fas fa-cog"></i></button>
+            </div>
+        </div>
+
+        <!-- Calendar container -->
+        <div id="calendarContainer" class="bg-white rounded-2xl shadow-sm overflow-hidden">
+            <div id="calendarGrid" class="calendar-grid"></div>
+        </div>
+    </div>
+
+    <div id="fab" class="fixed bottom-6 right-6 bg-blue-600 w-14 h-14 rounded-full flex items-center justify-center text-white text-2xl shadow-lg cursor-pointer hover:bg-blue-700 transition hidden" aria-label="Add new event">
+        <i class="fas fa-plus"></i>
+    </div>
+
+    <!-- Event Modal -->
+    <div id="eventModal" class="modal-backdrop hidden">
+        <div class="modal-card">
+            <div class="flex justify-between items-center mb-4">
+                <h3 class="text-lg font-bold">Add event</h3>
+                <button id="closeEventModal" class="text-gray-400 hover:text-gray-600 text-2xl">&times;</button>
+            </div>
+            <div class="space-y-3">
+                <input type="text" id="eventName" placeholder="Event name" class="w-full border rounded-xl p-2" required>
+                <div class="flex gap-2">
+                    <input type="time" id="eventOpenTime" placeholder="Open" class="w-1/2 border rounded-xl p-2">
+                    <input type="time" id="eventCloseTime" placeholder="Close" class="w-1/2 border rounded-xl p-2">
+                </div>
+                <div class="flex gap-2 items-center">
+                    <input type="number" id="eventMinStay" placeholder="Minimum stay" class="w-1/2 border rounded-xl p-2">
+                    <span class="text-sm text-gray-500">min</span>
+                    <input type="number" id="eventMaxStay" placeholder="Maximum stay" class="w-1/2 border rounded-xl p-2">
+                    <span class="text-sm text-gray-500">min</span>
+                </div>
+                <select id="eventRepeat" class="w-full border rounded-xl p-2">
+                    <option value="none">Does not repeat</option>
+                    <option value="daily">Daily</option>
+                    <option value="weekly">Weekly</option>
+                    <option value="monthly">Monthly</option>
+                </select>
+                <div id="weeklyDaysContainer" class="flex flex-wrap gap-2 hidden"></div>
+                <div id="monthlyDayContainer" class="hidden"><input type="number" id="monthlyDay" placeholder="Day of month" class="border rounded-xl p-2 w-full"></div>
+                <input type="date" id="eventRepeatEnd" placeholder="Repeat until" class="w-full border rounded-xl p-2 hidden">
+                <textarea id="eventNotes" rows="2" placeholder="Notes" class="w-full border rounded-xl p-2"></textarea>
+                <div>
+                    <label class="block text-sm font-medium mb-1">Color</label>
+                    <div id="colorPalette" class="flex gap-2 flex-wrap"></div>
+                </div>
+                <button id="toggleAdvancedBtn" type="button" class="text-sm text-blue-600">Show advanced options</button>
+                <div id="advancedOptions" class="hidden space-y-3 mt-2">
+                    <select id="eventFrequency" class="w-full border rounded-xl p-2">
+                        <option value="unlimited">Unlimited</option>
+                        <option value="1perWeek">Once per week</option>
+                        <option value="2perWeek">Twice per week</option>
+                        <option value="1perMonth">Once per month</option>
+                    </select>
+                    <div class="flex items-center gap-2"><input type="checkbox" id="eventScarce"> <label>Prioritize (scarce event)</label></div>
+                    <div class="flex items-center gap-2"><input type="checkbox" id="eventRemindRecency"> <label>Remind if not attended for a while</label></div>
+                    <div>
+                        <label class="block text-sm">Priority</label>
+                        <div class="flex gap-1" id="eventPriorityStars">
+                            <i class="far fa-star text-2xl cursor-pointer" data-prio="1"></i>
+                            <i class="far fa-star text-2xl cursor-pointer" data-prio="2"></i>
+                            <i class="far fa-star text-2xl cursor-pointer" data-prio="3"></i>
+                            <i class="far fa-star text-2xl cursor-pointer" data-prio="4"></i>
+                            <i class="far fa-star text-2xl cursor-pointer" data-prio="5"></i>
+                        </div>
+                        <p id="priorityDesc" class="text-xs text-gray-500 mt-1">Normal priority</p>
+                    </div>
+                </div>
+            </div>
+            <div class="flex gap-2 justify-end mt-4">
+                <button id="cancelEventBtn" class="px-4 py-2 bg-gray-200 rounded-full">Cancel</button>
+                <button id="saveEventBtn" class="px-4 py-2 bg-blue-600 text-white rounded-full flex items-center gap-2"><span>Save</span><i class="fas fa-spinner fa-spin hidden"></i></button>
+            </div>
+            <div id="draftBanner" class="hidden text-xs text-blue-600 mt-2">📝 Draft restored from last session. <button id="clearDraftBtn" class="underline">Clear</button></div>
+        </div>
+    </div>
+
+    <!-- Busy Modal -->
+    <div id="busyModal" class="modal-backdrop hidden">
+        <div class="modal-card">
+            <div class="flex justify-between items-center mb-4">
+                <h3 class="text-lg font-bold">Add busy time</h3>
+                <button id="closeBusyModal" class="text-gray-400 hover:text-gray-600 text-2xl">&times;</button>
+            </div>
+            <div class="space-y-3">
+                <input type="text" id="busyDescription" placeholder="What are you busy with?" class="w-full border rounded-xl p-2">
+                <div class="flex items-center gap-2">
+                    <input type="checkbox" id="busyHard"> <label>Firm appointment (hard block)</label>
+                </div>
+                <select id="busyRecurrence" class="w-full border rounded-xl p-2">
+                    <option value="once">Once on a specific date</option>
+                    <option value="weekly">Weekly on certain days</option>
+                    <option value="daterange">Date range (e.g., vacation)</option>
+                </select>
+                <div id="busyDateSingle" class="hidden"><input type="date" id="busyDate" class="w-full border rounded-xl p-2"></div>
+                <div id="busyDateRange" class="hidden flex gap-2"><input type="date" id="busyRangeStart" placeholder="From" class="w-1/2 border rounded-xl p-2"><input type="date" id="busyRangeEnd" placeholder="To" class="w-1/2 border rounded-xl p-2"></div>
+                <div id="busyWeeklyDays" class="hidden"><div class="flex flex-wrap gap-2" id="busyDaysCheckboxes"></div></div>
+                <div class="flex gap-2">
+                    <input type="time" id="busyStartTime" class="w-1/2 border rounded-xl p-2">
+                    <input type="time" id="busyEndTime" class="w-1/2 border rounded-xl p-2">
+                </div>
+                <div class="flex items-center gap-2">
+                    <input type="checkbox" id="busyAllDay"> <label>All day</label>
+                </div>
+                <input type="text" id="busyTag" placeholder="Tag (e.g., Work, School)" class="w-full border rounded-xl p-2">
+            </div>
+            <div class="flex justify-end gap-2 mt-4">
+                <button id="cancelBusyBtn" class="px-4 py-2 bg-gray-200 rounded-full">Cancel</button>
+                <button id="saveBusyBtn" class="px-4 py-2 bg-blue-600 text-white rounded-full">Save</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Settings Modal -->
+    <div id="settingsModal" class="modal-backdrop hidden">
+        <div class="modal-card max-w-lg">
+            <div class="flex justify-between items-center mb-4">
+                <h3 class="text-lg font-bold">Settings</h3>
+                <button id="closeSettingsModal" class="text-gray-400 hover:text-gray-600 text-2xl">&times;</button>
+            </div>
+            <div class="flex border-b border-gray-200 mb-4">
+                <button class="settings-tab px-4 py-2 text-sm font-medium border-b-2 border-blue-600 text-blue-600" data-tab="preferences">Preferences</button>
+                <button class="settings-tab px-4 py-2 text-sm font-medium text-gray-500 hover:text-gray-700" data-tab="scheduling">Scheduling</button>
+                <button class="settings-tab px-4 py-2 text-sm font-medium text-gray-500 hover:text-gray-700" data-tab="notifications">Notifications</button>
+                <button class="settings-tab px-4 py-2 text-sm font-medium text-gray-500 hover:text-gray-700" data-tab="data">Data</button>
+            </div>
+            <div id="settings-preferences" class="settings-panel space-y-4">
+                <div><label class="block font-medium">First day of the week</label><select id="firstDayOfWeek" class="w-full border rounded-xl p-2"><option value="0">Sunday</option><option value="1">Monday</option></select></div>
+                <div><label class="block font-medium">Time format</label><select id="timeFormat" class="w-full border rounded-xl p-2"><option value="12h">12‑hour (AM/PM)</option><option value="24h">24‑hour</option></select></div>
+                <div class="flex items-center gap-2"><input type="checkbox" id="darkModeToggle"><label>Use dark mode</label></div>
+            </div>
+            <div id="settings-scheduling" class="settings-panel hidden space-y-4">
+                <div><label class="block font-medium">Do you usually go home to rest between events?</label><select id="restPolicySelect" class="w-full border rounded-xl p-2"><option value="home">Yes, always go home and rest 15 minutes</option><option value="far">Only if the next event is far (more than ___ minutes walk)</option><option value="none">No, go directly to the next event</option></select><div id="farMinutesDiv" class="hidden mt-2"><label>Far means more than (minutes walk)</label><input type="number" id="farMinutes" value="10" class="border rounded-xl p-2 w-full"></div></div>
+            </div>
+            <div id="settings-notifications" class="settings-panel hidden space-y-4">
+                <div class="flex items-center gap-2"><input type="checkbox" id="notifyDayBefore" checked><label>Remind me the day before an event</label></div>
+                <div><label class="block text-sm">Remind me ___ minutes before an event</label><input type="number" id="notifyMinutesBefore" value="60" class="border rounded-xl p-1 w-24"></div>
+                <div><label class="block text-sm">Remind me to leave based on travel time (minutes before start)</label><input type="number" id="notifyTravelLead" value="5" class="border rounded-xl p-1 w-24"></div>
+            </div>
+            <div id="settings-data" class="settings-panel hidden space-y-4">
+                <div class="flex flex-wrap gap-2"><button id="exportDataBtn" class="px-4 py-2 bg-gray-200 rounded-full">Export all data (JSON)</button><button id="importDataBtn" class="px-4 py-2 bg-gray-200 rounded-full">Import data</button><button id="resetAllDataBtn" class="px-4 py-2 bg-red-100 text-red-700 rounded-full">Reset all data</button></div>
+            </div>
+            <div class="flex justify-end mt-6">
+                <button id="settingsNextBtn" class="px-4 py-2 bg-blue-600 text-white rounded-full">Next</button>
+                <button id="settingsDoneBtn" class="px-4 py-2 bg-green-600 text-white rounded-full hidden">Done</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Context Menu -->
+    <div id="contextMenu" class="fixed bg-white rounded-xl shadow-lg py-1 z-50 hidden">
+        <div id="ctxEdit" class="px-4 py-2 hover:bg-gray-100 cursor-pointer"><i class="fas fa-edit"></i> Edit</div>
+        <div id="ctxNoGo" class="px-4 py-2 hover:bg-gray-100 cursor-pointer"><i class="fas fa-ban"></i> Skip (No Go)</div>
+        <div id="ctxLock" class="px-4 py-2 hover:bg-gray-100 cursor-pointer"><i class="fas fa-lock"></i> Don't move</div>
+        <div id="ctxDelete" class="px-4 py-2 hover:bg-gray-100 cursor-pointer text-red-600"><i class="fas fa-trash"></i> Delete</div>
+    </div>
+
+    <div id="toastArea" aria-live="polite"></div>
+
+    <!-- Scripts -->
+    <script src="utils.js"></script>
+    <script src="db.js"></script>
+    <script src="calendar.js"></script>
+    <script src="modals.js"></script>
+    <script src="settings.js"></script>
+    <script src="notifications.js"></script>
+    <script src="main.js"></script>
+</body>
+</html>
