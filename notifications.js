@@ -1,9 +1,8 @@
 // notifications.js - In-app notification management
 // Must be loaded after state.js, utils.js, db.js
 
-// ========== NOTIFICATION LOG ==========
-function addToNotifLog(msg, eventId) {
-    notificationLog.unshift({ msg, eventId, time: new Date(), snoozedUntil: null, read: false });
+function addToNotifLog(msg, eventId, key) {
+    notificationLog.unshift({ msg, eventId, time: new Date(), snoozedUntil: null, read: false, key });
     if (notificationLog.length > 50) notificationLog.pop();
     updateNotifBadge();
     renderNotifPanel();
@@ -48,13 +47,14 @@ function snoozeNotification(idx) {
     if (!notif) return;
     notif.snoozedUntil = new Date(Date.now() + 10 * 60 * 1000);
     notif.read = true;
-    // Remove from shownNotifications set to allow re-notification after snooze? We'll keep as is for simplicity.
+    // Remove the key from shownNotifications so the notification can fire again later
+    if (notif.key) shownNotifications.delete(notif.key);
     showToast(`Snoozed for 10 minutes`);
     updateNotifBadge();
     renderNotifPanel();
 }
 
-function fireNotification(msg, ev) {
+function fireNotification(msg, ev, key) {
     // In-app toast always
     showToast(msg, 'info');
     // OS notification only when not focused
@@ -68,9 +68,9 @@ function fireNotification(msg, ev) {
     } else if (Notification.permission !== "denied") {
         Notification.requestPermission();
     }
+    addToNotifLog(msg, ev.id, key);
 }
 
-// ========== NOTIFICATION SCHEDULER ==========
 function updateNotifications() {
     if (notificationInterval) clearInterval(notificationInterval);
     
@@ -97,9 +97,8 @@ function updateNotifications() {
                     const logEntry = notificationLog.find(n => n.eventId === ev.id && n.snoozedUntil && n.snoozedUntil > now);
                     if (!logEntry) {
                         const msg = `Tomorrow: ${ev.name} at ${formatTime(toMinutes(ev.startTime))}`;
-                        fireNotification(msg, ev);
+                        fireNotification(msg, ev, key);
                         shownNotifications.add(key);
-                        addToNotifLog(msg, ev.id);
                     }
                 }
             }
@@ -112,9 +111,8 @@ function updateNotifications() {
                     const logEntry = notificationLog.find(n => n.eventId === ev.id && n.snoozedUntil && n.snoozedUntil > now);
                     if (!logEntry) {
                         const msg = `${ev.name} starts in ${Math.round(diffMins)} min`;
-                        fireNotification(msg, ev);
+                        fireNotification(msg, ev, key);
                         shownNotifications.add(key);
-                        addToNotifLog(msg, ev.id);
                     }
                 }
             }
@@ -128,9 +126,8 @@ function updateNotifications() {
                     const logEntry = notificationLog.find(n => n.eventId === ev.id && n.snoozedUntil && n.snoozedUntil > now);
                     if (!logEntry) {
                         const msg = `Leave now for ${ev.name} (${travelTime} min travel)`;
-                        fireNotification(msg, ev);
+                        fireNotification(msg, ev, key);
                         shownNotifications.add(key);
-                        addToNotifLog(msg, ev.id);
                     }
                 }
             }
