@@ -332,3 +332,340 @@
     background: #1e293b;
     border-left: 2px solid #3b82f6;
 }
+/* ========== EMPTY STATE ========== */
+.empty-state {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    text-align: center;
+    color: #9ca3af;
+    pointer-events: none;
+    z-index: 1;
+}
+.empty-state i {
+    font-size: 3rem;
+    margin-bottom: 1rem;
+    display: block;
+}
+
+/* ========== EVENT BLOCK – TWO-LINE LAYOUT ========== */
+.event-block {
+    white-space: normal !important;
+    line-height: 1.2;
+}
+.event-block .event-time {
+    font-size: 0.6rem;
+    font-weight: 400;
+    opacity: 0.85;
+    display: block;
+}
+.event-block.short-block .event-time {
+    display: none;
+}
+.event-block.short-block:hover .event-time {
+    display: block;
+    position: absolute;
+    bottom: 100%;
+    left: 0;
+    background: rgba(0,0,0,0.8);
+    color: white;
+    padding: 2px 6px;
+    border-radius: 4px;
+    white-space: nowrap;
+    z-index: 100;
+    font-size: 0.7rem;
+}
+
+/* ========== HOVER TOOLTIP CARD ========== */
+.event-tooltip {
+    position: fixed;
+    background: white;
+    border-radius: 0.75rem;
+    padding: 0.75rem 1rem;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.15);
+    z-index: 3000;
+    min-width: 200px;
+    max-width: 280px;
+    pointer-events: none;
+    font-size: 0.8rem;
+    border: 1px solid #e5e7eb;
+}
+.event-tooltip .tooltip-title {
+    font-weight: 700;
+    font-size: 0.9rem;
+    margin-bottom: 0.25rem;
+}
+.event-tooltip .tooltip-time {
+    color: #6b7280;
+    margin-bottom: 0.25rem;
+}
+.event-tooltip .tooltip-notes {
+    color: #374151;
+    font-style: italic;
+    margin-top: 0.25rem;
+    border-top: 1px solid #f3f4f6;
+    padding-top: 0.25rem;
+}
+.dark .event-tooltip {
+    background: #1e293b;
+    border-color: #334155;
+    color: #f1f5f9;
+}
+.dark .event-tooltip .tooltip-time {
+    color: #94a3b8;
+}
+.dark .event-tooltip .tooltip-notes {
+    color: #cbd5e1;
+    border-top-color: #334155;
+}
+
+/* ========== COLOR SWATCH SELECTED STATE ========== */
+.color-swatch {
+    width: 1.5rem;
+    height: 1.5rem;
+    border-radius: 50%;
+    cursor: pointer;
+    border: 2px solid transparent;
+    transition: transform 0.1s, border-color 0.1s;
+}
+.color-swatch:hover {
+    transform: scale(1.2);
+}
+.color-swatch.selected {
+    border-color: #1e293b;
+    transform: scale(1.15);
+}
+.dark .color-swatch.selected {
+    border-color: #f1f5f9;
+}
+
+/* ========== DRAFT BANNER ========== */
+#draftBanner {
+    background: #eff6ff;
+    border: 1px solid #bfdbfe;
+    border-radius: 0.5rem;
+    padding: 0.4rem 0.75rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+.dark #draftBanner {
+    background: #1e3a8a;
+    border-color: #3b82f6;
+    color: #bfdbfe;
+}
+
+/* ========== MODAL DIRTY STATE ========== */
+.modal-dirty-warning {
+    background: #fef3c7;
+    border: 1px solid #fbbf24;
+    border-radius: 0.5rem;
+    padding: 0.4rem 0.75rem;
+    font-size: 0.8rem;
+    color: #92400e;
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+    justify-content: space-between;
+}
+.dark .modal-dirty-warning {
+    background: #451a03;
+    border-color: #d97706;
+    color: #fde68a;
+}
+
+/* ========== BUSY BLOCK CLICKABLE OVERLAY ========== */
+.busy-overlay {
+    cursor: pointer;
+    pointer-events: auto !important;
+}
+.busy-overlay:hover {
+    opacity: 0.85;
+    border-left-color: #6b7280;
+}
+
+/* ========== SETTINGS – PLACES LIST ========== */
+.place-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.5rem 0;
+    border-bottom: 1px solid #e5e7eb;
+    font-size: 0.875rem;
+}
+.dark .place-row {
+    border-color: #334155;
+}
+.place-row:last-child {
+    border-bottom: none;
+}
+
+/* ========== NOTIFICATION BELL ========== */
+#notifBell {
+    position: relative;
+    cursor: pointer;
+}
+#notifBadge {
+    position: absolute;
+    top: -4px;
+    right: -4px;
+    background: #ef4444;
+    color: white;
+    border-radius: 50%;
+    width: 16px;
+    height: 16px;
+    font-size: 0.6rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+}
+#notifPanel {
+    position: fixed;
+    top: 60px;
+    right: 1rem;
+    width: 300px;
+    max-height: 400px;
+    overflow-y: auto;
+    background: white;
+    border-radius: 1rem;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.15);
+    z-index: 2000;
+    border: 1px solid #e5e7eb;
+}
+.dark #notifPanel {
+    background: #1e293b;
+    border-color: #334155;
+}
+.notif-item {
+    padding: 0.75rem 1rem;
+    border-bottom: 1px solid #f3f4f6;
+    font-size: 0.8rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 0.5rem;
+}
+.notif-item:last-child {
+    border-bottom: none;
+}
+.dark .notif-item {
+    border-color: #334155;
+}
+.notif-snooze {
+    font-size: 0.7rem;
+    color: #3b82f6;
+    cursor: pointer;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+/* ========== FORM VALIDATION ERRORS ========== */
+.field-error {
+    border-color: #ef4444 !important;
+    box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.2);
+}
+.field-error-msg {
+    color: #ef4444;
+    font-size: 0.7rem;
+    margin-top: 0.2rem;
+    display: block;
+}
+
+/* ========== SAVE & ADD ANOTHER BUTTON ========== */
+#saveAddAnotherBusyBtn {
+    padding: 0.5rem 1rem;
+    background: #eff6ff;
+    color: #3b82f6;
+    border-radius: 9999px;
+    font-size: 0.875rem;
+    border: 1px solid #bfdbfe;
+    cursor: pointer;
+    transition: background 0.1s;
+}
+#saveAddAnotherBusyBtn:hover {
+    background: #dbeafe;
+}
+.dark #saveAddAnotherBusyBtn {
+    background: #1e3a8a;
+    border-color: #3b82f6;
+    color: #bfdbfe;
+}
+
+/* ========== ACCESSIBILITY – FOCUS RING ========== */
+.event-block:focus-visible,
+.event-block-month:focus-visible {
+    outline: 3px solid #3b82f6;
+    outline-offset: 2px;
+}
+button:focus-visible {
+    outline: 2px solid #3b82f6;
+    outline-offset: 2px;
+}
+
+/* ========== MODAL FOCUS TRAP INDICATOR ========== */
+.modal-card:focus {
+    outline: none;
+}
+
+/* ========== SAFE AREA FOR MOBILE (iOS) ========== */
+#mainApp {
+    padding-bottom: calc(1rem + env(safe-area-inset-bottom));
+}
+#fab {
+    bottom: calc(1.5rem + env(safe-area-inset-bottom));
+}
+
+/* ========== SCROLLBAR GLOBAL ========== */
+::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+}
+::-webkit-scrollbar-track {
+    background: transparent;
+}
+::-webkit-scrollbar-thumb {
+    background: #d1d5db;
+    border-radius: 10px;
+}
+::-webkit-scrollbar-thumb:hover {
+    background: #9ca3af;
+}
+.dark ::-webkit-scrollbar-track {
+    background: #0f172a;
+}
+.dark ::-webkit-scrollbar-thumb {
+    background: #334155;
+}
+.dark ::-webkit-scrollbar-thumb:hover {
+    background: #475569;
+}
+
+/* ========== VIEW TOGGLE BUTTON STATES ========== */
+#viewToggleBtn[data-view="week"]::before {
+    content: "";
+}
+#viewToggleBtn[data-view="month"]::before {
+    content: "";
+}
+
+/* ========== WEEKDAY SELECTALL BUTTON ========== */
+.weekday-selectall {
+    font-size: 0.75rem;
+    color: #3b82f6;
+    cursor: pointer;
+    padding: 0.2rem 0.5rem;
+    border: 1px solid #bfdbfe;
+    border-radius: 9999px;
+    background: #eff6ff;
+    transition: background 0.1s;
+}
+.weekday-selectall:hover {
+    background: #dbeafe;
+}
+.dark .weekday-selectall {
+    background: #1e3a8a;
+    border-color: #3b82f6;
+    color: #bfdbfe;
+}
