@@ -270,7 +270,7 @@ async function resetAndShowWizard() {
     wizardStep = 1;
     
     // Clear wizard draft if draft manager exists
-    if (window.wizardDraftManager && typeof wizardDraftManager.clearDraft === 'function') {
+    if (typeof wizardDraftManager !== 'undefined' && wizardDraftManager !== null && typeof wizardDraftManager.clearDraft === 'function') {
         await wizardDraftManager.clearDraft();
     }
     
