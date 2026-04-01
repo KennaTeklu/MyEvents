@@ -439,8 +439,16 @@ const Wizard = (function() {
             if (typeof LocationManager !== 'undefined' && LocationManager.addPlace) {
                 placeId = await LocationManager.addPlace(homePlace);
             } else {
+                // Ensure homePlace has no id property (avoids key path errors)
+                delete homePlace.id;
                 placeId = await addRecord(STORES.PLACES, homePlace);
-                await refreshPlaces?.();
+                // Update global places array manually if refreshPlaces is unavailable
+                if (typeof refreshPlaces === 'function') {
+                    await refreshPlaces();
+                } else {
+                    const newPlace = { ...homePlace, id: placeId };
+                    places.push(newPlace);
+                }
             }
             currentPlaceId = placeId;
             
@@ -509,9 +517,9 @@ const Wizard = (function() {
                 setTimeout(() => Scheduler.run(), 500);
             }
         } catch (err) {
-            console.error('Finish wizard error:', err);
-            showToast('Setup failed: ' + err.message, 'error');
-        }
+                console.error('Finish wizard error:', err, 'Home place:', homePlace);
+                showToast('Setup failed: ' + err.message, 'error');
+            }
     }
     
     // ========== PUBLIC API ==========
