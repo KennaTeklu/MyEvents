@@ -51,6 +51,27 @@ async function loadData() {
     }
 }
 
+// ========== SHOW MAIN APP (hide wizard, show main UI) ==========
+async function showMainApp() {
+    const wizardOverlay = document.getElementById('wizardOverlay');
+    const mainApp = document.getElementById('mainApp');
+    const fab = document.getElementById('fab');
+
+    if (wizardOverlay) wizardOverlay.classList.add('hidden');
+    if (mainApp) {
+        mainApp.classList.remove('hidden');
+        // Optional: add a subtle animation
+        mainApp.style.animation = 'fadeInUp 0.4s ease';
+        setTimeout(() => { mainApp.style.animation = ''; }, 500);
+    }
+    if (fab) fab.classList.remove('hidden');
+
+    await fullRefresh();
+    // Scroll to current time after calendar renders
+    if (typeof scrollToNow === 'function') scrollToNow();
+    showToast('Ready!', 'success');
+}
+
 // ========== CONFLICT DETECTION ==========
 async function detectConflicts() {
     conflicts = [];
@@ -222,7 +243,6 @@ async function handleGpsPosition(position) {
             }
         }
         if (closest && closestDist < 200) {
-            // Replace confirm/prompt with GPS modal
             showGPSModal(closest, closestDist, lat, lon);
         }
     }
@@ -238,135 +258,31 @@ function showNukeAnimation() {
     }, 500);
 }
 
-// ========== WIZARD ==========
-function renderWizardStep() {
-    const container = document.getElementById('wizardStepsContainer');
-    const backBtn = document.getElementById('wizardBackBtn');
-    const nextBtn = document.getElementById('wizardNextBtn');
-    const finishBtn = document.getElementById('wizardFinishBtn');
-
-    if (wizardStep === 1) {
-        container.innerHTML = `
-            <p class="mb-4 text-gray-600">Let's set your home location so I know where you start from.</p>
-            <button id="wizardUseGps" class="w-full bg-blue-600 text-white px-4 py-3 rounded-xl mb-2 flex items-center justify-center gap-2 hover:bg-blue-700 transition">
-                <i class="fas fa-location-arrow"></i> Use my current location
-            </button>
-            <button id="wizardSkipGps" class="w-full bg-gray-100 text-gray-600 px-4 py-2 rounded-xl hover:bg-gray-200 transition">Skip for now</button>
-        `;
-        document.getElementById('wizardUseGps').onclick = () => {
-            if (navigator.geolocation) {
-                navigator.geolocation.getCurrentPosition(pos => {
-                    wizardData.home = { lat: pos.coords.latitude, lon: pos.coords.longitude };
-                    wizardStep = 2; renderWizardStep();
-                }, () => { wizardStep = 2; renderWizardStep(); });
-            } else { wizardStep = 2; renderWizardStep(); }
-        };
-        document.getElementById('wizardSkipGps').onclick = () => { wizardStep = 2; renderWizardStep(); };
-    } 
-    else if (wizardStep === 2) {
-        container.innerHTML = `
-            <p class="mb-2 font-medium">What is your first recurring activity?</p>
-            <input type="text" id="wizardEventName" placeholder="e.g. Gym, Library, Office" class="w-full border rounded-xl p-3 shadow-sm focus:ring-2 focus:ring-blue-500 outline-none">
-        `;
-        const input = document.getElementById('wizardEventName');
-        input.value = wizardData.eventName || '';
-        input.oninput = (e) => { wizardData.eventName = e.target.value; };
-    } 
-    else if (wizardStep === 3) {
-        container.innerHTML = `
-            <p class="mb-2 font-medium">When is it usually open?</p>
-            <div class="flex gap-2">
-                <div class="w-1/2"><label class="text-xs text-gray-500 ml-1">Opens</label><input type="time" id="wizardOpen" value="${wizardData.openTime || '09:00'}" class="w-full border rounded-xl p-2"></div>
-                <div class="w-1/2"><label class="text-xs text-gray-500 ml-1">Closes</label><input type="time" id="wizardClose" value="${wizardData.closeTime || '17:00'}" class="w-full border rounded-xl p-2"></div>
-            </div>
-        `;
-        document.getElementById('wizardOpen').onchange = (e) => wizardData.openTime = e.target.value;
-        document.getElementById('wizardClose').onchange = (e) => wizardData.closeTime = e.target.value;
-    } 
-    else if (wizardStep === 4) {
-        container.innerHTML = `
-            <p class="mb-2 font-medium">How many minutes do you usually stay?</p>
-            <input type="number" id="wizardStay" value="${wizardData.stay || 60}" class="w-full border rounded-xl p-3 shadow-sm">
-        `;
-        document.getElementById('wizardStay').oninput = (e) => wizardData.stay = parseInt(e.target.value);
-    } 
-    else if (wizardStep === 5) {
-        container.innerHTML = `
-            <p class="mb-3 font-medium">Do you go home to rest between events?</p>
-            <div class="space-y-2">
-                <div id="choiceHome" class="p-3 border rounded-xl cursor-pointer hover:bg-blue-50 transition flex items-center gap-3 ${wizardData.restPolicy !== 'none' ? 'border-blue-600 bg-blue-50' : ''}">
-                    <i class="fas fa-home text-blue-600"></i> <span>Yes, rest at home (15m)</span>
-                </div>
-                <div id="choiceNone" class="p-3 border rounded-xl cursor-pointer hover:bg-blue-50 transition flex items-center gap-3 ${wizardData.restPolicy === 'none' ? 'border-blue-600 bg-blue-50' : ''}">
-                    <i class="fas fa-direction text-gray-600"></i> <span>No, go directly to next</span>
-                </div>
-            </div>
-        `;
-        const select = (policy) => {
-            wizardData.restPolicy = policy;
-            renderWizardStep();
-        };
-        document.getElementById('choiceHome').onclick = () => select('home');
-        document.getElementById('choiceNone').onclick = () => select('none');
-    }
-
-    backBtn.classList.toggle('hidden', wizardStep === 1);
-    nextBtn.classList.toggle('hidden', wizardStep === 5);
-    finishBtn.classList.toggle('hidden', wizardStep !== 5);
-
-    backBtn.onclick = () => { if (wizardStep > 1) { wizardStep--; renderWizardStep(); } };
-    nextBtn.onclick = () => {
-        if (wizardStep === 2 && !wizardData.eventName) return showToast('Enter an event name', 'error');
-        if (wizardStep < 5) { wizardStep++; renderWizardStep(); }
-    };
-
-    finishBtn.onclick = async () => {
-        const finalEvent = {
-            name: wizardData.eventName || 'First Activity',
-            openTime: wizardData.openTime || '09:00',
-            closeTime: wizardData.closeTime || '17:00',
-            minStay: wizardData.stay || 60,
-            maxStay: (wizardData.stay || 60) + 60,
-            startDate: formatDate(new Date()),
-            startTime: wizardData.openTime || '09:00',
-            endTime: fromMinutes(toMinutes(wizardData.openTime || '09:00') + (wizardData.stay || 60)),
-            color: '#3b82f6',
-            repeat: 'none',
-            priority: 3,
-            travelMins: 15
-        };
-        await addRecord('events', finalEvent);
-        await setSetting('restPolicy', wizardData.restPolicy || 'home');
-        await setSetting('wizardComplete', true);
-        document.getElementById('wizardOverlay').classList.add('hidden');
-        document.getElementById('mainApp').classList.remove('hidden');
-        document.getElementById('fab').classList.remove('hidden');
-        await fullRefresh();
-        showToast('Setup complete!', 'success');
-    };
-}
-
 // ========== MAIN INITIALIZATION ==========
 window.addEventListener('DOMContentLoaded', async () => {
     await initDB();
     await loadData();
 
+    // Hide loading overlay
     const loadingOverlay = document.getElementById('loadingOverlay');
     if (loadingOverlay) loadingOverlay.style.display = 'none';
 
-    const wizardOverlay = document.getElementById('wizardOverlay');
-    const mainApp = document.getElementById('mainApp');
-    const fab = document.getElementById('fab');
-
+    // Check if wizard has been completed
     const wizardComplete = await getSetting('wizardComplete');
-    if (events.length === 0 && !wizardComplete) {
-        wizardOverlay?.classList.remove('hidden');
-        renderWizardStep();
+    if (!wizardComplete) {
+        // Show the enhanced wizard (defined in modals.js)
+        if (typeof showWizard === 'function') {
+            showWizard();
+        } else {
+            // Fallback in case modals.js not loaded properly
+            console.warn('showWizard not available, using fallback');
+            document.getElementById('wizardOverlay')?.classList.remove('hidden');
+            // Use old renderWizardStep? But we removed it, so fallback to main app
+            await showMainApp();
+        }
     } else {
-        wizardOverlay?.classList.add('hidden');
-        mainApp?.classList.remove('hidden');
-        fab?.classList.remove('hidden');
-        await fullRefresh();
+        // Wizard already done, show main app
+        await showMainApp();
     }
 
     // ========== UI EVENT LISTENERS ==========
@@ -390,17 +306,24 @@ window.addEventListener('DOMContentLoaded', async () => {
         renderCalendar();
     });
     document.getElementById('fab')?.addEventListener('click', () => openEventModal());
-    document.getElementById('wizardExitBtn')?.addEventListener('click', async () => {
-        await setSetting('wizardComplete', true);
-        wizardOverlay?.classList.add('hidden');
-        mainApp?.classList.remove('hidden');
-        fab?.classList.remove('hidden');
-        await fullRefresh();
-    });
     document.getElementById('gpsUpdateBtn')?.addEventListener('click', () => {
         if (gpsWatchId) stopGPS();
         else startGPS();
     });
+
+    // Wizard exit button (close wizard and go to app without completing)
+    const wizardExitBtn = document.getElementById('wizardExitBtn');
+    if (wizardExitBtn) {
+        wizardExitBtn.addEventListener('click', async () => {
+            // Mark wizard as complete to prevent showing again
+            await setSetting('wizardComplete', true);
+            // Close wizard overlay
+            const wizardOverlay = document.getElementById('wizardOverlay');
+            if (wizardOverlay) wizardOverlay.classList.add('hidden');
+            // Show main app
+            await showMainApp();
+        });
+    }
 
     // ========== MODAL BACKDROP CLOSE ==========
     document.querySelectorAll('.modal-backdrop[data-closeable]').forEach(modal => {
@@ -855,6 +778,13 @@ window.addEventListener('DOMContentLoaded', async () => {
         });
     }
 
-    // ========== NOTIFICATION PERMISSION ==========
-    if (Notification.permission === "default") Notification.requestPermission();
+    // ========== NOTIFICATION PERMISSION (fallback) ==========
+    // Only request if wizard is complete and permission still default
+    const wizardCompleteFlag = await getSetting('wizardComplete');
+    if (wizardCompleteFlag && Notification.permission === "default") {
+        // Delay a bit to not interrupt the user
+        setTimeout(() => {
+            Notification.requestPermission();
+        }, 3000);
+    }
 });
