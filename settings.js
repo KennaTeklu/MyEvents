@@ -256,3 +256,40 @@ async function deleteBusyBlock(id) {
         showToast('Failed to delete busy block', 'error');
     }
 }
+
+// ========== REDO SETUP BUTTON HANDLER ==========
+/**
+ * Resets the wizard state and shows the onboarding wizard again.
+ * Clears the wizardComplete flag, clears any wizard draft, and displays the wizard overlay.
+ */
+async function resetAndShowWizard() {
+    // Close settings modal first
+    ModalManager.close('settingsModal');
+    
+    // Reset wizard step to 1
+    wizardStep = 1;
+    
+    // Clear wizard draft if draft manager exists
+    if (window.wizardDraftManager && typeof wizardDraftManager.clearDraft === 'function') {
+        await wizardDraftManager.clearDraft();
+    }
+    
+    // Clear the wizardComplete setting so that on next launch wizard shows
+    await setSetting('wizardComplete', false);
+    
+    // Show the wizard (defined in modals.js)
+    if (typeof showWizard === 'function') {
+        showWizard();
+    } else {
+        console.error('showWizard function not found');
+        showToast('Could not restart setup. Please refresh the page.', 'error');
+    }
+}
+
+// Initialize Redo Setup button after DOM is ready
+document.addEventListener('DOMContentLoaded', () => {
+    const redoBtn = document.getElementById('redoWizardBtn');
+    if (redoBtn) {
+        redoBtn.addEventListener('click', resetAndShowWizard);
+    }
+});
