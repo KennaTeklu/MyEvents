@@ -13,6 +13,55 @@ async function fullRefresh() {
         debouncedOptimizerRun();
     }
 }
+window.dragstart_handler = function(ev) {
+    const block = ev.target.closest('.event-block');
+    if (!block) {
+        ev.preventDefault();
+        return;
+    }
+    ev.dataTransfer.setData("text/plain", JSON.stringify({
+        eventId: block.dataset.id,
+        dateStr: block.dataset.date
+    }));
+    ev.dataTransfer.effectAllowed = "move";
+};
+
+window.dragover_handler = function(ev) {
+    ev.preventDefault();
+    ev.dataTransfer.dropEffect = "move";
+};
+
+window.drop_handler = async function(ev) {
+    ev.preventDefault();
+    const targetCell = ev.target.closest('.day-cell');
+    if (!targetCell) return;
+    let data;
+    try {
+        data = JSON.parse(ev.dataTransfer.getData("text/plain"));
+    } catch (e) {
+        return;
+    }
+    const eventId = parseInt(data.eventId);
+    const oldDateStr = data.dateStr;
+    const targetDateStr = targetCell.dataset.date;
+    if (!eventId || !oldDateStr || !targetDateStr) return;
+    if (oldDateStr === targetDateStr) return;
+
+    const key = `${eventId}_${oldDateStr}`;
+    const override = {
+        compositeKey: `${eventId}_${targetDateStr}`,
+        eventId,
+        dateStr: targetDateStr,
+        type: 'exception',
+        newEvent: { startDate: targetDateStr }
+    };
+    await deleteRecord(STORES.OVERRIDES, key);
+    overrides.delete(key);
+    await putRecord(STORES.OVERRIDES, override);
+    overrides.set(override.compositeKey, override);
+    await fullRefresh();
+    showToast(`Moved event to ${targetDateStr}`);
+};
 
 // Debounced optimizer call
 let optimizerDebounceTimer = null;
@@ -633,7 +682,7 @@ window.addEventListener('DOMContentLoaded', async () => {
                 }
                 const eventData = {
                     id: editingEventId || undefined,
-                    name: document.getElementById('eventName').value.trim(),
+                    name: eventName,
                     openTime: document.getElementById('eventOpenTime').value,
                     closeTime: document.getElementById('eventCloseTime').value,
                     minStay: parseInt(document.getElementById('eventMinStay').value),
@@ -651,7 +700,8 @@ window.addEventListener('DOMContentLoaded', async () => {
                     priority: document.querySelectorAll('#eventPriorityStars .fa-star.selected').length,
                     travelMins: 15,
                     weeklyDays: Array.from(document.querySelectorAll('#weeklyDaysContainer input:checked')).map(cb => parseInt(cb.value)),
-                    monthlyDay: parseInt(document.getElementById('monthlyDay').value) || 1
+                    monthlyDay: parseInt(document.getElementById('monthlyDay').value) || 1,
+                    placeId: document.getElementById('eventPlaceId').value || null
                 };
                 if (editingEventId && editingDateStr) {
                     const key = `${editingEventId}_${editingDateStr}`;

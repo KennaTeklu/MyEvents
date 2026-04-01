@@ -91,7 +91,10 @@ async function renderWeekView(container) {
         const dayBusy = getDisplayBusyForDate(dayStr);
         const isToday = dayStr === formatDate(new Date());
 
-        html += `<div class="day-cell relative" data-date="${dayStr}" style="flex: 1; min-width: 100px; height: ${dayHeight}px; position: relative; background: ${isToday ? '#eff6ff' : 'white'}; border-right: 1px solid #e5e7eb;">`;
+        html += `<div class="day-cell relative" data-date="${dayStr}" 
+            ondragover="dragover_handler(event)"
+            ondrop="drop_handler(event)"
+            style="flex: 1; min-width: 100px; height: ${dayHeight}px; position: relative; background: ${isToday ? '#eff6ff' : 'white'}; border-right: 1px solid #e5e7eb;">`;
 
         // Busy overlays
         for (const busy of dayBusy) {
@@ -142,6 +145,8 @@ async function renderWeekView(container) {
 
                 html += `<div class="event-block${extraClasses} ${isShort ? 'short-block' : ''}"
                             data-id="${ev.id}" data-date="${dayStr}"
+                            draggable="true"
+                            ondragstart="dragstart_handler(event)"
                             style="position: absolute; top: ${top}px; height: ${height}px; left: 2px; right: 2px; background-color: ${ev.color || '#3b82f6'}; border-radius: 6px; padding: 2px 4px; font-size: 0.7rem; font-weight: 600; color: white; cursor: pointer; overflow: hidden; white-space: normal; z-index: 10;"
                             role="button" tabindex="0"
                             aria-label="${escapeHtml(ev.name)}, ${formatTime(startMin)} to ${formatTime(endMin)}">
@@ -226,7 +231,12 @@ async function renderMobileWeekView(container) {
         const dayBusy = getDisplayBusyForDate(dayStr);
         const isToday = dayStr === formatDate(new Date());
 
-        html += `<div class="day-cell relative" data-date="${dayStr}" style="flex: 0 0 90px; min-width: 90px; height: ${dayHeight}px; position: relative; background: ${isToday ? '#eff6ff' : 'white'}; border-right: 1px solid #e5e7eb;">`;
+        html += `<div class="day-cell relative" data-date="${dayStr}" 
+            ondragover="dragover_handler(event)"
+            ondrop="drop_handler(event)"
+            style="flex: 0 0 90px; min-width: 90px; height: ${dayHeight}px; position: relative; background: ${isToday ? '#eff6ff' : 'white'}; border-right: 1px solid #e5e7eb;">`;
+
+        // Busy overlays
         for (const busy of dayBusy) {
             const startMin = toMinutes(busy.startTime);
             const endMin = toMinutes(busy.endTime);
@@ -238,12 +248,16 @@ async function renderMobileWeekView(container) {
                 html += `<div class="busy-overlay ${busy.hard ? 'hard' : ''}" style="position: absolute; top: ${top}px; height: ${height}px; left: 0; right: 0;"></div>`;
             }
         }
+
+        // Todo badge
         if (userSettings.showTodosInCalendar) {
             const todosDue = todos.filter(t => !t.completed && t.dueDate === dayStr);
             if (todosDue.length > 0) {
                 html += `<div class="todo-badge" style="position: absolute; top: 2px; right: 2px; background: #f59e0b; color: white; border-radius: 12px; padding: 0px 6px; font-size: 10px; font-weight: bold;">📝${todosDue.length}</div>`;
             }
         }
+
+        // Events
         for (const ev of dayEvents) {
             const startMin = toMinutes(ev.startTime);
             const endMin = toMinutes(ev.endTime);
@@ -258,6 +272,8 @@ async function renderMobileWeekView(container) {
                 const hasConflict = dayBusy.some(b => endMin > toMinutes(b.startTime) && startMin < toMinutes(b.endTime)) ||
                                    dayEvents.some(other => other.id !== ev.id && endMin > toMinutes(other.startTime) && startMin < toMinutes(other.endTime));
                 const isScheduled = ev.isScheduled || false;
+                const duration = endMin - startMin;
+                const isShort = duration < 30;
 
                 let extraClasses = '';
                 if (isNogo) extraClasses += ' nogo';
@@ -265,9 +281,13 @@ async function renderMobileWeekView(container) {
                 if (hasConflict) extraClasses += ' conflict-pulse';
                 if (isScheduled) extraClasses += ' scheduled';
 
-                html += `<div class="event-block${extraClasses}"
+                html += `<div class="event-block${extraClasses} ${isShort ? 'short-block' : ''}"
                             data-id="${ev.id}" data-date="${dayStr}"
-                            style="position: absolute; top: ${top}px; height: ${height}px; left: 2px; right: 2px; background-color: ${ev.color || '#3b82f6'}; border-radius: 6px; padding: 2px 4px; font-size: 0.7rem; font-weight: 600; color: white; cursor: pointer; overflow: hidden; white-space: normal; z-index: 10;">
+                            draggable="true"
+                            ondragstart="dragstart_handler(event)"
+                            style="position: absolute; top: ${top}px; height: ${height}px; left: 2px; right: 2px; background-color: ${ev.color || '#3b82f6'}; border-radius: 6px; padding: 2px 4px; font-size: 0.7rem; font-weight: 600; color: white; cursor: pointer; overflow: hidden; white-space: normal; z-index: 10;"
+                            role="button" tabindex="0"
+                            aria-label="${escapeHtml(ev.name)}, ${formatTime(startMin)} to ${formatTime(endMin)}">
                             ${escapeHtml(ev.name)}
                             <span class="event-time" style="font-size: 0.6rem; font-weight: normal; display: block;">${formatTime(startMin)}–${formatTime(endMin)}</span>
                             ${hasConflict ? '<span class="conflict-label" style="position: absolute; top: 2px; right: 2px; background: red; color: white; border-radius: 50%; width: 16px; height: 16px; font-size: 10px; text-align: center;">⚠️</span>' : ''}
@@ -384,7 +404,7 @@ async function renderMonthView(container) {
     });
 }
 
-// ========== DAY VIEW (new) ==========
+// ========== DAY VIEW ==========
 async function renderDayView(container) {
     const date = currentDate;
     const dateStr = formatDate(date);
@@ -515,7 +535,6 @@ function showEventTooltip(ev, x, y) {
         tooltipEl.style.top = (y - rect.height + 10) + 'px';
     }
 
-    // Attach feedback handlers
     const likeBtn = tooltipEl.querySelector('.feedback-like');
     const dislikeBtn = tooltipEl.querySelector('.feedback-dislike');
     if (likeBtn) likeBtn.onclick = () => { submitFeedback(ev.id, 'like'); hideEventTooltip(); };
@@ -535,7 +554,6 @@ async function submitFeedback(eventId, type) {
     await addRecord('userFeedback', feedback);
     await addRecord('learningData', { type: 'preference', eventId, preference: type, timestamp: new Date() });
     showToast(`Thanks for your feedback!`, 'success');
-    // Optionally re-run optimizer
     if (typeof runOptimizer === 'function') runOptimizer();
 }
 

@@ -139,6 +139,12 @@
                     <label class="block text-sm font-medium mb-1">Color</label>
                     <div id="colorPalette" class="flex gap-2 flex-wrap"></div>
                 </div>
+                <div>
+                    <label class="block text-sm font-medium mb-1">Location</label>
+                    <select id="eventPlaceId" class="w-full border rounded-xl p-2">
+                        <option value="">No location (home)</option>
+                    </select>
+                </div>
                 <input type="hidden" id="eventColor" value="#3b82f6">
                 <button id="toggleAdvancedBtn" type="button" class="text-sm text-blue-600">Show advanced options</button>
                 <div id="advancedOptions" class="hidden space-y-3 mt-2">
@@ -311,9 +317,11 @@
             </div>
             <div class="space-y-3">
                 <p class="conflict-message text-sm"></p>
-                <div class="conflict-actions flex gap-2 justify-end">
+                <div class="conflict-actions flex gap-2 justify-end flex-wrap">
+                    <button id="resolveConflictBtn" class="px-3 py-1 bg-blue-600 text-white rounded-full">Reschedule</button>
+                    <button id="overlapConflictBtn" class="px-3 py-1 bg-yellow-500 text-white rounded-full">Overlap (if high priority)</button>
+                    <button id="splitConflictBtn" class="px-3 py-1 bg-purple-500 text-white rounded-full">Split busy block</button>
                     <button id="ignoreConflictBtn" class="px-3 py-1 bg-gray-200 rounded-full">Ignore</button>
-                    <button id="resolveConflictBtn" class="px-3 py-1 bg-blue-600 text-white rounded-full">Resolve</button>
                 </div>
             </div>
         </div>

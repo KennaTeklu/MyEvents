@@ -614,68 +614,81 @@ function openEventModal(event = null, dateStr = null) {
         });
     }
 
-    function populateForm(data) {
-        document.getElementById('eventName').value = data.name || '';
-        document.getElementById('eventOpenTime').value = data.openTime || '09:00';
-        document.getElementById('eventCloseTime').value = data.closeTime || '17:00';
-        document.getElementById('eventMinStay').value = data.minStay ?? 30;
-        document.getElementById('eventMaxStay').value = data.maxStay ?? 120;
-        document.getElementById('eventRepeat').value = data.repeat || 'none';
-        document.getElementById('eventRepeatEnd').value = data.repeatEnd || '';
-        document.getElementById('eventNotes').value = data.notes || '';
-        document.getElementById('eventFrequency').value = data.frequency || 'unlimited';
-        document.getElementById('eventScarce').checked = !!data.scarce;
-        document.getElementById('eventRemindRecency').checked = !!data.remindRecency;
-        document.getElementById('eventColor').value = data.color || '#3b82f6';
+function populateForm(data) {
+    document.getElementById('eventName').value = data.name || '';
+    document.getElementById('eventOpenTime').value = data.openTime || '09:00';
+    document.getElementById('eventCloseTime').value = data.closeTime || '17:00';
+    document.getElementById('eventMinStay').value = data.minStay ?? 30;
+    document.getElementById('eventMaxStay').value = data.maxStay ?? 120;
+    document.getElementById('eventRepeat').value = data.repeat || 'none';
+    document.getElementById('eventRepeatEnd').value = data.repeatEnd || '';
+    document.getElementById('eventNotes').value = data.notes || '';
+    document.getElementById('eventFrequency').value = data.frequency || 'unlimited';
+    document.getElementById('eventScarce').checked = !!data.scarce;
+    document.getElementById('eventRemindRecency').checked = !!data.remindRecency;
+    document.getElementById('eventColor').value = data.color || '#3b82f6';
 
-        buildColorPalette(data.color || '#3b82f6');
-
-        const stars = document.querySelectorAll('#eventPriorityStars .fa-star');
-        const priority = data.priority ?? 3;
-        stars.forEach((star, idx) => {
-            star.classList.toggle('selected', idx < priority);
-            const newStar = star.cloneNode(true);
-            star.parentNode.replaceChild(newStar, star);
-        });
-        document.querySelectorAll('#eventPriorityStars .fa-star').forEach((star, idx) => {
-            star.addEventListener('click', () => {
-                const prio = idx + 1;
-                document.querySelectorAll('#eventPriorityStars .fa-star').forEach((s, i) => {
-                    s.classList.toggle('selected', i < prio);
-                });
-                const desc = document.getElementById('priorityDesc');
-                if (desc) desc.innerText = getPriorityLabel(prio);
-                if (eventDraftManager) eventDraftManager.saveDraft();
-            });
-        });
-        const desc = document.getElementById('priorityDesc');
-        if (desc) desc.innerText = getPriorityLabel(priority);
-
-        document.querySelectorAll('#weeklyDaysContainer input').forEach(cb => {
-            cb.checked = !!(data.weeklyDays && data.weeklyDays.includes(parseInt(cb.value)));
-        });
-        document.getElementById('monthlyDay').value = data.monthlyDay ?? 1;
-
-        const adv = document.getElementById('advancedOptions');
-        const advBtn = document.getElementById('toggleAdvancedBtn');
-        if (adv && advBtn) {
-            if (event && (data.frequency !== 'unlimited' || data.scarce || data.remindRecency || data.priority !== 3)) {
-                adv.classList.remove('hidden');
-                advBtn.textContent = 'Hide advanced options';
-            } else {
-                adv.classList.add('hidden');
-                advBtn.textContent = 'Show advanced options';
-            }
+    // Populate location dropdown
+    const placeSelect = document.getElementById('eventPlaceId');
+    if (placeSelect) {
+        while (placeSelect.options.length > 1) placeSelect.remove(1);
+        for (const place of places) {
+            const option = document.createElement('option');
+            option.value = place.id;
+            option.textContent = place.name;
+            placeSelect.appendChild(option);
         }
-
-        eventFormSnapshot = {
-            eventName: data.name || '',
-            eventOpenTime: data.openTime || '09:00',
-            eventCloseTime: data.closeTime || '17:00',
-            eventMinStay: String(data.minStay ?? 30),
-            eventNotes: data.notes || ''
-        };
+        placeSelect.value = data.placeId || '';
     }
+
+    buildColorPalette(data.color || '#3b82f6');
+
+    const stars = document.querySelectorAll('#eventPriorityStars .fa-star');
+    const priority = data.priority ?? 3;
+    stars.forEach((star, idx) => {
+        star.classList.toggle('selected', idx < priority);
+        const newStar = star.cloneNode(true);
+        star.parentNode.replaceChild(newStar, star);
+    });
+    document.querySelectorAll('#eventPriorityStars .fa-star').forEach((star, idx) => {
+        star.addEventListener('click', () => {
+            const prio = idx + 1;
+            document.querySelectorAll('#eventPriorityStars .fa-star').forEach((s, i) => {
+                s.classList.toggle('selected', i < prio);
+            });
+            const desc = document.getElementById('priorityDesc');
+            if (desc) desc.innerText = getPriorityLabel(prio);
+            if (eventDraftManager) eventDraftManager.saveDraft();
+        });
+    });
+    const desc = document.getElementById('priorityDesc');
+    if (desc) desc.innerText = getPriorityLabel(priority);
+
+    document.querySelectorAll('#weeklyDaysContainer input').forEach(cb => {
+        cb.checked = !!(data.weeklyDays && data.weeklyDays.includes(parseInt(cb.value)));
+    });
+    document.getElementById('monthlyDay').value = data.monthlyDay ?? 1;
+
+    const adv = document.getElementById('advancedOptions');
+    const advBtn = document.getElementById('toggleAdvancedBtn');
+    if (adv && advBtn) {
+        if (event && (data.frequency !== 'unlimited' || data.scarce || data.remindRecency || data.priority !== 3)) {
+            adv.classList.remove('hidden');
+            advBtn.textContent = 'Hide advanced options';
+        } else {
+            adv.classList.add('hidden');
+            advBtn.textContent = 'Show advanced options';
+        }
+    }
+
+    eventFormSnapshot = {
+        eventName: data.name || '',
+        eventOpenTime: data.openTime || '09:00',
+        eventCloseTime: data.closeTime || '17:00',
+        eventMinStay: String(data.minStay ?? 30),
+        eventNotes: data.notes || ''
+    };
+}
 
     if (event) {
         populateForm(event);
@@ -1102,6 +1115,12 @@ function showBottomSheet(eventId, dateStr) {
         attendedBtn.innerHTML = isAttended ? '<i class="fas fa-check-double"></i> Attended' : '<i class="fas fa-check"></i> Mark Attended';
         attendedBtn.onclick = async () => {
             if (!isAttended) {
+                const plannedMinutes = (toMinutes(ev.endTime) - toMinutes(ev.startTime));
+                const actualMinutes = prompt(`How many minutes did you actually spend? (Planned: ${plannedMinutes} min)`, plannedMinutes);
+                const actual = parseInt(actualMinutes);
+                if (!isNaN(actual) && actual !== plannedMinutes) {
+                    await UserLearning.recordEventDuration(eventId, dateStr, actual);
+                }
                 await addRecord('attendanceLog', { eventId, dateStr, timestamp: new Date() });
                 showToast('Marked as attended', 'success');
             } else {

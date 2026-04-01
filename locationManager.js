@@ -5,6 +5,8 @@
 const LocationManager = (function() {
     // ========== PRIVATE VARIABLES ==========
     let gpsWatchId = null;
+    let lastStablePlaceId = null;
+    let lastStableTime = 0;
     let lastLocationUpdate = null;
     let locationUpdateDebounceTimer = null;
     
@@ -205,89 +207,81 @@ async addPlace(placeData) {
             
             // Debounce updates to avoid excessive UI refreshes
             if (locationUpdateDebounceTimer) clearTimeout(locationUpdateDebounceTimer);
-            locationUpdateDebounceTimer = setTimeout(async () => {
-                // Check if we are in any known place
-                let matchedPlace = null;
-                let matchedSublocation = null;
-                for (const place of places) {
-                    if (place.lat && place.lon) {
-                        const dist = getDistance(lat, lon, place.lat, place.lon);
-                        if (dist <= place.radius) {
-                            matchedPlace = place;
-                            // Check sublocations
-                            if (place.sublocations) {
-                                for (const sub of place.sublocations) {
-                                    if (sub.lat && sub.lon) {
-                                        const subDist = getDistance(lat, lon, sub.lat, sub.lon);
-                                        if (subDist <= LOCATION.SUBLOCATION_RADIUS) {
-                                            matchedSublocation = sub;
-                                            break;
-                                        }
-                                    }
-                                }
-                            }
-                            break;
-                        }
-                    }
-                }
-                
-                // Update current place and sublocation
-                if (matchedPlace) {
-                    if (matchedPlace.id !== currentPlaceId) {
-                        currentPlaceId = matchedPlace.id;
-                        const display = document.getElementById('currentPlaceDisplay');
-                        if (display) {
-                            let name = matchedPlace.name;
-                            if (matchedSublocation) name += ` (${matchedSublocation.name})`;
-                            display.innerText = `📍 ${name}`;
-                        }
-                        showToast(`📍 You are at ${matchedPlace.name}`);
-                    } else if (matchedSublocation && matchedSublocation.id !== currentLocation.sublocationId) {
-                        currentLocation.sublocationId = matchedSublocation.id;
-                        currentLocation.sublocationName = matchedSublocation.name;
-                        const display = document.getElementById('currentPlaceDisplay');
-                        if (display) display.innerText = `📍 ${matchedPlace.name} (${matchedSublocation.name})`;
-                    }
-                } else {
-                    // Not in any known place: find closest place
-                    let closest = null;
-                    let closestDist = Infinity;
-                    for (const place of places) {
-                        if (place.lat && place.lon) {
-                            const d = getDistance(lat, lon, place.lat, place.lon);
-                            if (d < closestDist) {
-                                closestDist = d;
-                                closest = place;
+locationUpdateDebounceTimer = setTimeout(async () => {
+    // Check if we are in any known place
+    let matchedPlace = null;
+    let matchedSublocation = null;
+    for (const place of places) {
+        if (place.lat && place.lon) {
+            const dist = getDistance(lat, lon, place.lat, place.lon);
+            if (dist <= place.radius) {
+                matchedPlace = place;
+                // Check sublocations
+                if (place.sublocations) {
+                    for (const sub of place.sublocations) {
+                        if (sub.lat && sub.lon) {
+                            const subDist = getDistance(lat, lon, sub.lat, sub.lon);
+                            if (subDist <= LOCATION.SUBLOCATION_RADIUS) {
+                                matchedSublocation = sub;
+                                break;
                             }
                         }
                     }
-                    if (closest && closestDist < LOCATION.NEARBY_THRESHOLD) {
-                        // Show GPS modal to ask user what to do
-                        if (typeof showGPSModal === 'function') {
-                            showGPSModal(closest, closestDist, lat, lon);
-                        } else {
-                            console.warn('showGPSModal not available');
-                        }
-                    }
                 }
-                
-                // Record location history if auto-learn enabled
-                if (userSettings.autoLearn) {
-                    await addRecord(STORES.LOCATION_HISTORY, {
-                        lat,
-                        lon,
-                        placeId: matchedPlace?.id || null,
-                        sublocationId: matchedSublocation?.id || null,
-                        timestamp: now.toISOString()
-                    });
-                    // Trim history to reasonable size (keep last 1000)
-                    const allHistory = await getAll(STORES.LOCATION_HISTORY);
-                    if (allHistory.length > 1000) {
-                        const toDelete = allHistory.slice(0, allHistory.length - 1000);
-                        for (const h of toDelete) await deleteRecord(STORES.LOCATION_HISTORY, h.id);
-                    }
+                break;
+            }
+        }
+    }
+    
+    // HYSTERESIS: only update if place has been stable for at least 10 seconds
+    const nowTime = Date.now();
+    if (matchedPlace && matchedPlace.id !== lastStablePlaceId) {
+        if (nowTime - lastStableTime > 10000) {
+            lastStablePlaceId = matchedPlace.id;
+            lastStableTime = nowTime;
+            // Now update UI
+            if (matchedPlace.id !== currentPlaceId) {
+                currentPlaceId = matchedPlace.id;
+                const display = document.getElementById('currentPlaceDisplay');
+                if (display) {
+                    let name = matchedPlace.name;
+                    if (matchedSublocation) name += ` (${matchedSublocation.name})`;
+                    display.innerText = `📍 ${name}`;
                 }
-            }, 500);
+                showToast(`📍 You are at ${matchedPlace.name}`);
+            } else if (matchedSublocation && matchedSublocation.id !== currentLocation.sublocationId) {
+                currentLocation.sublocationId = matchedSublocation.id;
+                currentLocation.sublocationName = matchedSublocation.name;
+                const display = document.getElementById('currentPlaceDisplay');
+                if (display) display.innerText = `📍 ${matchedPlace.name} (${matchedSublocation.name})`;
+            }
+        }
+    } else if (!matchedPlace) {
+        // Reset stability when outside all known places
+        lastStablePlaceId = null;
+        lastStableTime = 0;
+    } else if (matchedPlace && matchedPlace.id === lastStablePlaceId) {
+        // Same place as before, update the timestamp to keep stability alive
+        lastStableTime = nowTime;
+    }
+    
+    // Original location history recording (unchanged)
+    if (userSettings.autoLearn) {
+        await addRecord(STORES.LOCATION_HISTORY, {
+            lat,
+            lon,
+            placeId: matchedPlace?.id || null,
+            sublocationId: matchedSublocation?.id || null,
+            timestamp: now.toISOString()
+        });
+        // Trim history to reasonable size (keep last 1000)
+        const allHistory = await getAll(STORES.LOCATION_HISTORY);
+        if (allHistory.length > 1000) {
+            const toDelete = allHistory.slice(0, allHistory.length - 1000);
+            for (const h of toDelete) await deleteRecord(STORES.LOCATION_HISTORY, h.id);
+        }
+    }
+}, 1000);   // increased debounce from 500ms to 1000ms for smoother updates
         },
         
         /**
@@ -313,23 +307,30 @@ async addPlace(placeData) {
          */
         async getTravelTime(fromPlaceId, toPlaceId, mode = userSettings.travelSpeed) {
             if (fromPlaceId === toPlaceId) return 0;
-            
-            // First check learned travel times
-            const learned = getLearnedTravelTime(fromPlaceId, toPlaceId);
-            if (learned !== null) return learned;
-            
-            // Fallback to distance-based
             const fromPlace = places.find(p => p.id === fromPlaceId);
             const toPlace = places.find(p => p.id === toPlaceId);
             if (!fromPlace || !toPlace) return OPTIMIZER.DEFAULT_TRAVEL_TIME;
-            
             if (fromPlace.lat && fromPlace.lon && toPlace.lat && toPlace.lon) {
+                // Try OSRM routing
+                const travelMode = mode === 'driving' ? 'driving' : 'foot';
+                const url = `https://router.project-osrm.org/route/v1/${travelMode}/${fromPlace.lon},${fromPlace.lat};${toPlace.lon},${toPlace.lat}?overview=false`;
+                try {
+                    const response = await fetch(url);
+                    const data = await response.json();
+                    if (data.code === 'Ok' && data.routes && data.routes[0]) {
+                        const durationSeconds = data.routes[0].duration;
+                        const minutes = Math.ceil(durationSeconds / 60);
+                        return Math.min(OPTIMIZER.MAX_TRAVEL_TIME, Math.max(1, minutes));
+                    }
+                } catch (err) {
+                    console.warn('OSRM routing failed, falling back to distance', err);
+                }
+                // Fallback to distance calculation
                 const dist = getDistance(fromPlace.lat, fromPlace.lon, toPlace.lat, toPlace.lon);
-                const time = estimateTravelTime(dist, mode);
-                return Math.min(OPTIMIZER.MAX_TRAVEL_TIME, Math.max(5, time));
+                const speed = mode === 'driving' ? 50 : 5; // km/h
+                const minutes = dist / (speed * 1000 / 60);
+                return Math.min(OPTIMIZER.MAX_TRAVEL_TIME, Math.max(5, Math.round(minutes)));
             }
-            
-            // Check custom travelToEvent map
             const custom = fromPlace.travelToEvent?.[toPlaceId] || toPlace.travelToEvent?.[fromPlaceId];
             return custom ?? OPTIMIZER.DEFAULT_TRAVEL_TIME;
         },
