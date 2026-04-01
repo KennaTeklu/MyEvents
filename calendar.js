@@ -1,7 +1,8 @@
 // calendar.js - Enhanced Calendar Rendering with scheduled events, todos, travel blocks, feedback
 // Must be loaded after state.js, utils.js, db.js, modals.js
 
-const PIXELS_PER_MIN = 1.5; // pixels per minute for vertical scaling
+// Use global constant from constants.js
+const PIXELS_PER_MIN = PIXELS_PER_MINUTE;
 
 // ========== GLOBAL RENDER FUNCTION ==========
 async function renderCalendar() {
