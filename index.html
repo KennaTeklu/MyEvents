@@ -232,6 +232,27 @@
                     <label class="block font-medium mb-2">Places</label>
                     <div id="placesListContainer" class="max-h-40 overflow-y-auto"></div>
                 </div>
+                <!-- Live JSON Visualizer -->
+                <div class="mt-4">
+                    <div class="flex justify-between items-center mb-2">
+                        <label class="block font-medium">Live Data State</label>
+                        <div class="flex gap-2">
+                            <button id="refreshLiveJSONBtn" class="text-xs bg-gray-200 dark:bg-gray-700 px-2 py-1 rounded-full hover:bg-gray-300 dark:hover:bg-gray-600">⟳ Refresh</button>
+                            <button id="copyLiveJSONBtn" class="text-xs bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 px-2 py-1 rounded-full hover:bg-blue-200 dark:hover:bg-blue-800">📋 Copy JSON</button>
+                        </div>
+                    </div>
+                    <div id="jsonVisualizerContainer" class="bg-gray-50 dark:bg-gray-800 rounded-lg overflow-hidden border border-gray-200 dark:border-gray-700">
+                        <div class="json-viz-toolbar">
+                            <div class="json-viz-dots">
+                                <span class="json-viz-dot red"></span>
+                                <span class="json-viz-dot yellow"></span>
+                                <span class="json-viz-dot green"></span>
+                            </div>
+                            <div class="json-viz-label">state.json</div>
+                        </div>
+                        <pre id="jsonVisualizerPre" class="text-xs font-mono p-3 overflow-auto max-h-64 whitespace-pre-wrap break-all"></pre>
+                    </div>
+                </div>
                 <div class="flex flex-wrap gap-2 mt-2"><button id="exportDataBtn" class="px-4 py-2 bg-gray-200 rounded-full">Export all data (JSON)</button><button id="importDataBtn" class="px-4 py-2 bg-gray-200 rounded-full">Import data</button><button id="resetAllDataBtn" class="px-4 py-2 bg-red-100 text-red-700 rounded-full">Reset all data</button></div>
             </div>
             <div class="flex justify-end mt-6">
@@ -241,8 +262,48 @@
         </div>
     </div>
 
-    <!-- Context Menu -->
-    <div id="contextMenu" class="fixed bg-white rounded-xl shadow-lg py-1 z-50 hidden">
+    <!-- Bottom Sheet Context Menu -->
+    <div id="bottomSheetBackdrop" class="hidden"></div>
+    <div id="bottomSheet" class="hidden">
+        <div class="sheet-header">
+            <div class="sheet-title text-lg font-semibold mb-1"></div>
+            <div class="sheet-desc text-sm text-gray-500 dark:text-gray-400 mb-3"></div>
+        </div>
+        <div class="sheet-actions">
+            <button id="sheetEdit" class="sheet-action"><span class="action-icon"><i class="fas fa-edit"></i></span> Edit</button>
+            <button id="sheetSkip" class="sheet-action"><span class="action-icon"><i class="fas fa-ban"></i></span> Skip (No Go)</button>
+            <button id="sheetAttended" class="sheet-action"><span class="action-icon"><i class="fas fa-check"></i></span> Mark Attended</button>
+            <button id="sheetLock" class="sheet-action"><span class="action-icon"><i class="fas fa-lock"></i></span> Don't move</button>
+            <button id="sheetDelete" class="sheet-action danger"><span class="action-icon"><i class="fas fa-trash-alt"></i></span> Delete</button>
+        </div>
+    </div>
+
+    <!-- GPS Disambiguation Modal -->
+    <div id="gpsDisambigModal" class="modal-backdrop hidden">
+        <div class="modal-card">
+            <div class="modal-header">
+                <h3 class="modal-title">Location detected</h3>
+                <button class="modal-close" onclick="ModalManager.close('gpsDisambigModal')">&times;</button>
+            </div>
+            <div class="gps-place-info">
+                <div class="gps-icon"><i class="fas fa-map-marker-alt"></i></div>
+                <div>You are <strong class="distance"></strong> meters from <strong class="place-name"></strong>.</div>
+            </div>
+            <div class="gps-choice-buttons">
+                <button id="gpsWidenRadius" class="gps-choice-btn">
+                    <i class="fas fa-expand-alt"></i>
+                    <span>Widen radius to include this spot</span>
+                </button>
+                <button id="gpsCreatePlace" class="gps-choice-btn primary">
+                    <i class="fas fa-plus-circle"></i>
+                    <span>Create new place here</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Legacy Context Menu (kept for fallback, but hidden by CSS) -->
+    <div id="contextMenu" class="hidden fixed bg-white rounded-xl shadow-lg py-1 z-50 hidden">
         <div id="ctxEdit" class="px-4 py-2 hover:bg-gray-100 cursor-pointer"><i class="fas fa-edit"></i> Edit</div>
         <div id="ctxNoGo" class="px-4 py-2 hover:bg-gray-100 cursor-pointer"><i class="fas fa-ban"></i> Skip (No Go)</div>
         <div id="ctxLock" class="px-4 py-2 hover:bg-gray-100 cursor-pointer"><i class="fas fa-lock"></i> Don't move</div>
