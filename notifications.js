@@ -319,7 +319,7 @@ function checkLocationReminders(now) {
 }
 
 // ========== NOTIFICATION SCHEDULER ==========
-let notificationInterval = null;
+notificationInterval = null;   // variable is already declared in state.js
 let lastMidnightReset = null;
 
 function updateNotifications() {
