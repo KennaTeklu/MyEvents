@@ -1,77 +1,163 @@
 // calendar.js - Calendar rendering logic (Week/Month/Conflict Engine)
-// Must be loaded after state.js, utils.js, db.js
+// Must be loaded after state.js, utils.js, db.js, modals.js
 
-// ========== RENDERER ==========
+// ========== GLOBAL RENDER FUNCTION ==========
 async function renderCalendar() {
     const container = document.getElementById('calendarGrid');
     if (!container) return;
     const isMobile = window.innerWidth < 768;
-    
-    // Clear existing
-    container.innerHTML = '';
-    
+
+    container.innerHTML = ''; // clear
+
     if (currentView === 'week') {
         if (isMobile) await renderMobileWeekView(container);
         else await renderWeekView(container);
     } else {
         await renderMonthView(container);
     }
-    
+
     attachCalendarEvents();
     updateNowLine();
     scrollToNow();
     updateDateRangeDisplay();
 }
 
-// ========== WEEK VIEW ==========
+// ========== WEEK VIEW (desktop) ==========
 async function renderWeekView(container) {
+    // Determine the week's start date
     const startOfWeek = new Date(currentDate);
     startOfWeek.setDate(currentDate.getDate() - ((currentDate.getDay() - firstDayOfWeek + 7) % 7));
-    const days = Array.from({length: 7}, (_, i) => addDays(startOfWeek, i));
+    const days = Array.from({ length: 7 }, (_, i) => addDays(startOfWeek, i));
 
-    // Build Header
+    // ---- Dynamic time range based on events ----
+    let earliestHour = 24, latestHour = 0;
+    for (const day of days) {
+        const dateStr = formatDate(day);
+        const dayEvents = getEventsForDate(dateStr);
+        for (const ev of dayEvents) {
+            const startMin = toMinutes(ev.startTime);
+            const endMin = toMinutes(ev.endTime);
+            earliestHour = Math.min(earliestHour, Math.floor(startMin / 60));
+            latestHour = Math.max(latestHour, Math.ceil(endMin / 60));
+        }
+    }
+    earliestHour = Math.max(6, earliestHour - 1);
+    latestHour = Math.min(22, latestHour + 1);
+    if (earliestHour >= latestHour) { earliestHour = 6; latestHour = 22; }
+
+    // Build header row
     let html = `<div class="weekdays flex">`;
     days.forEach(d => {
         const isToday = formatDate(d) === formatDate(new Date());
-        html += `<div class="day-header flex-1 text-center font-semibold py-2 ${isToday ? 'today-header' : ''}">${d.toLocaleDateString(undefined, { weekday: 'short' })}<br>${d.getDate()}</div>`;
+        html += `<div class="day-header flex-1 text-center font-semibold py-2 ${isToday ? 'today-header' : ''}">
+                    ${d.toLocaleDateString(undefined, { weekday: 'short' })}<br>${d.getDate()}
+                 </div>`;
     });
     html += `</div>`;
 
-    // Build Grid (6AM to 10PM)
+    // Build timeline rows
+    for (let hour = earliestHour; hour < latestHour; hour++) {
+        for (let minute = 0; minute < 60; minute += 30) {
+            const currentMin = hour * 60 + minute;
+            html += `<div class="timeline-row">`;
+            html += `<div class="time-col">${formatTime(currentMin)}</div>`;
+            html += `<div class="days-row">`;
+
+            for (const day of days) {
+                const dayStr = formatDate(day);
+                const dayEvents = getEventsForDate(dayStr);
+                const dayBusy = getBusyBlocksForDate(dayStr).filter(b => {
+                    const start = toMinutes(b.startTime);
+                    const end = toMinutes(b.endTime);
+                    return end > currentMin && start < currentMin + 30;
+                });
+
+                html += `<div class="day-cell relative ${formatDate(day) === formatDate(new Date()) ? 'today-cell' : ''}" data-date="${dayStr}">`;
+
+                // Busy overlays
+                for (const busy of dayBusy) {
+                    const startMin = toMinutes(busy.startTime);
+                    const endMin = toMinutes(busy.endTime);
+                    const top = ((Math.max(startMin, currentMin) - currentMin) / 30) * 100;
+                    const height = ((Math.min(endMin, currentMin + 30) - Math.max(startMin, currentMin)) / 30) * 100;
+                    html += `<div class="busy-overlay" style="top:${top}%; height:${height}%;"></div>`;
+                }
+
+                // Events
+                for (const ev of dayEvents) {
+                    const startMin = toMinutes(ev.startTime);
+                    const endMin = toMinutes(ev.endTime);
+                    if (endMin > currentMin && startMin < currentMin + 30) {
+                        const top = ((Math.max(startMin, currentMin) - currentMin) / 30) * 100;
+                        const height = ((Math.min(endMin, currentMin + 30) - Math.max(startMin, currentMin)) / 30) * 100;
+                        const isNogo = overrides.has(`${ev.id}_${dayStr}`) && overrides.get(`${ev.id}_${dayStr}`).type === 'nogo';
+                        const isLocked = overrides.has(`${ev.id}_${dayStr}`) && overrides.get(`${ev.id}_${dayStr}`).type === 'locked';
+                        const hasConflict = dayBusy.some(b => endMin > toMinutes(b.startTime) && startMin < toMinutes(b.endTime));
+                        const duration = endMin - startMin;
+                        const isShort = duration < 30;
+
+                        html += `<div class="event-block ${isNogo ? 'nogo' : ''} ${isLocked ? 'locked' : ''} ${hasConflict ? 'conflict' : ''} ${isShort ? 'short-block' : ''}"
+                                    data-id="${ev.id}" data-date="${dayStr}"
+                                    style="top:${top}%; height:${height}%; background-color:${ev.color || '#3b82f6'};"
+                                    role="button" tabindex="0"
+                                    aria-label="${escapeHtml(ev.name)}, ${formatTime(startMin)} to ${formatTime(endMin)}">
+                                    ${escapeHtml(ev.name)}
+                                    <span class="event-time">${formatTime(startMin)}–${formatTime(endMin)}</span>
+                                </div>`;
+                    }
+                }
+                html += `</div>`;
+            }
+            html += `</div></div>`;
+        }
+    }
+
+    container.innerHTML = html;
+
+    // Show empty state if no events this week
+    const totalEventsThisWeek = days.reduce((acc, day) => acc + getEventsForDate(formatDate(day)).length, 0);
+    if (totalEventsThisWeek === 0) renderEmptyState(container);
+}
+
+// ========== MOBILE WEEK VIEW (simpler, 3 days) ==========
+async function renderMobileWeekView(container) {
+    const startDate = new Date(currentDate);
+    const days = [];
+    for (let i = 0; i < 3; i++) {
+        const d = new Date(startDate);
+        d.setDate(startDate.getDate() + i);
+        days.push(d);
+    }
+
+    // Header
+    let html = `<div class="weekdays flex">`;
+    days.forEach(d => {
+        const isToday = formatDate(d) === formatDate(new Date());
+        html += `<div class="day-header flex-1 text-center font-semibold py-2 ${isToday ? 'today-header' : ''}">
+                    ${d.toLocaleDateString(undefined, { weekday: 'short' })}<br>${d.getDate()}
+                 </div>`;
+    });
+    html += `</div>`;
+
+    // Timeline (fixed 6-22)
     for (let hour = 6; hour < 22; hour++) {
         for (let minute = 0; minute < 60; minute += 30) {
             const currentMin = hour * 60 + minute;
             html += `<div class="timeline-row"><div class="time-col">${formatTime(currentMin)}</div><div class="days-row">`;
-            
-            for (let day of days) {
+            for (const day of days) {
                 const dayStr = formatDate(day);
                 const dayEvents = getEventsForDate(dayStr);
-                const dayBusy = getBusyBlocksForDate(dayStr).filter(b => toMinutes(b.endTime) > currentMin && toMinutes(b.startTime) < currentMin + 30);
-
                 html += `<div class="day-cell relative" data-date="${dayStr}">`;
-                
-                // 1. Busy Overlays
-                for (let busy of dayBusy) {
-                    const top = ((Math.max(toMinutes(busy.startTime), currentMin) - currentMin) / 30) * 100;
-                    const height = ((Math.min(toMinutes(busy.endTime), currentMin + 30) - Math.max(toMinutes(busy.startTime), currentMin)) / 30) * 100;
-                    html += `<div class="busy-overlay" style="top:${top}%; height:${height}%;"></div>`;
-                }
-
-                // 2. Events
-                for (let ev of dayEvents) {
-                    const s = toMinutes(ev.startTime);
-                    const e = toMinutes(ev.endTime);
-                    if (e > currentMin && s < currentMin + 30) {
-                        const top = ((Math.max(s, currentMin) - currentMin) / 30) * 100;
-                        const height = ((Math.min(e, currentMin + 30) - Math.max(s, currentMin)) / 30) * 100;
-                        
-                        // Conflict check: overlaps with any busy block?
-                        const hasConflict = dayBusy.some(b => e > toMinutes(b.startTime) && s < toMinutes(b.endTime));
-                        
-                        html += `<div class="event-block ${ev.isLocked ? 'locked' : ''} ${hasConflict ? 'conflict' : ''}" 
-                                   data-id="${ev.id}" data-date="${dayStr}" style="top:${top}%; height:${height}%; background-color:${ev.color || '#3b82f6'};">
-                                   ${escapeHtml(ev.name)} <span class="event-time">${formatTime(s)}-${formatTime(e)}</span>
-                                 </div>`;
+                for (const ev of dayEvents) {
+                    const startMin = toMinutes(ev.startTime);
+                    const endMin = toMinutes(ev.endTime);
+                    if (endMin > currentMin && startMin < currentMin + 30) {
+                        const top = ((Math.max(startMin, currentMin) - currentMin) / 30) * 100;
+                        const height = ((Math.min(endMin, currentMin + 30) - Math.max(startMin, currentMin)) / 30) * 100;
+                        html += `<div class="event-block" data-id="${ev.id}" data-date="${dayStr}"
+                                    style="top:${top}%; height:${height}%; background-color:${ev.color || '#3b82f6'};">
+                                    ${escapeHtml(ev.name)}
+                                </div>`;
                     }
                 }
                 html += `</div>`;
@@ -86,35 +172,254 @@ async function renderWeekView(container) {
 async function renderMonthView(container) {
     const year = currentDate.getFullYear();
     const month = currentDate.getMonth();
-    const start = new Date(year, month, 1);
-    start.setDate(1 - ((start.getDay() - firstDayOfWeek + 7) % 7));
-    
-    let html = `<div class="month-view"><div class="weekdays flex">${['S','M','T','W','T','F','S'].map(d => `<div class="day-header flex-1 text-center py-2">${d}</div>`).join('')}</div>`;
-    
-    for (let w = 0; w < 5; w++) {
-        html += `<div class="flex">`;
+    const firstDayOfMonth = new Date(year, month, 1);
+    const startDate = new Date(firstDayOfMonth);
+    startDate.setDate(1 - ((firstDayOfMonth.getDay() - firstDayOfWeek + 7) % 7));
+
+    const weeks = [];
+    for (let w = 0; w < 6; w++) {
+        const week = [];
         for (let d = 0; d < 7; d++) {
-            const date = addDays(start, w * 7 + d);
+            const date = addDays(startDate, w * 7 + d);
+            week.push(date);
+        }
+        weeks.push(week);
+    }
+
+    // Build day headers respecting firstDayOfWeek
+    const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    const orderedDayNames = [...dayNames.slice(firstDayOfWeek), ...dayNames.slice(0, firstDayOfWeek)];
+    let html = `<div class="month-view"><div class="weekdays flex">${orderedDayNames.map(d => `<div class="day-header flex-1 text-center py-2">${d}</div>`).join('')}</div>`;
+
+    for (const week of weeks) {
+        html += `<div class="flex">`;
+        for (const date of week) {
             const dateStr = formatDate(date);
             const dayEvents = getEventsForDate(dateStr);
-            html += `<div class="day-cell flex-1 border p-1" data-date="${dateStr}">
-                        <div class="text-right text-xs">${date.getDate()}</div>`;
-            dayEvents.slice(0, 2).forEach(ev => {
-                html += `<div class="event-block-month" data-id="${ev.id}" data-date="${dateStr}">${escapeHtml(ev.name)}</div>`;
-            });
-            if (dayEvents.length > 2) html += `<div class="text-[9px] text-blue-500 text-center">+${dayEvents.length - 2}</div>`;
+            const isCurrentMonth = date.getMonth() === month;
+            const isToday = dateStr === formatDate(new Date());
+
+            html += `<div class="day-cell flex-1 border min-h-24 p-1 ${isCurrentMonth ? '' : 'text-gray-400'} ${isToday ? 'today-cell' : ''}" data-date="${dateStr}">
+                        <div class="text-right text-sm font-semibold cursor-pointer" data-nav-date="${dateStr}">${date.getDate()}</div>`;
+            // Show up to 3 events
+            const maxDisplay = 3;
+            for (let i = 0; i < Math.min(dayEvents.length, maxDisplay); i++) {
+                const ev = dayEvents[i];
+                const isNogo = overrides.has(`${ev.id}_${dateStr}`) && overrides.get(`${ev.id}_${dateStr}`).type === 'nogo';
+                html += `<div class="event-block-month ${isNogo ? 'nogo' : ''} text-xs rounded p-1 mt-1 truncate"
+                            data-id="${ev.id}" data-date="${dateStr}" style="background-color:${ev.color || '#3b82f6'};">
+                            ${escapeHtml(ev.name)}
+                         </div>`;
+            }
+            if (dayEvents.length > maxDisplay) {
+                html += `<div class="text-xs text-blue-500 mt-1 cursor-pointer more-events" data-date="${dateStr}">+${dayEvents.length - maxDisplay} more</div>`;
+            }
             html += `</div>`;
         }
         html += `</div>`;
     }
+    html += `</div>`;
     container.innerHTML = html;
+
+    // Attach "more events" click handlers and date navigation
+    container.querySelectorAll('.more-events').forEach(el => {
+        el.onclick = (e) => {
+            e.stopPropagation();
+            const dateStr = el.dataset.date;
+            const dayEvents = getEventsForDate(dateStr);
+            // Build popup
+            const existing = document.getElementById('moreEventsPopup');
+            if (existing) existing.remove();
+            const popup = document.createElement('div');
+            popup.id = 'moreEventsPopup';
+            popup.className = 'event-tooltip';
+            popup.style.pointerEvents = 'auto';
+            popup.style.left = e.clientX + 'px';
+            popup.style.top = e.clientY + 'px';
+            popup.innerHTML = `<div class="font-semibold mb-2">${formatDateDisplay(dateStr)}</div>` +
+                dayEvents.map(ev => `<div class="py-1 border-b border-gray-100 dark:border-slate-700 text-xs">
+                    <span style="display:inline-block; width:8px; height:8px; border-radius:50%; background:${ev.color || '#3b82f6'}; margin-right:4px;"></span>
+                    ${formatTime(toMinutes(ev.startTime))} ${escapeHtml(ev.name)}
+                </div>`).join('') +
+                `<button class="mt-2 text-xs text-gray-400 w-full text-right">Close</button>`;
+            document.body.appendChild(popup);
+            popup.querySelector('button').onclick = () => popup.remove();
+            document.addEventListener('click', () => popup.remove(), { once: true });
+        };
+    });
+
+    container.querySelectorAll('[data-nav-date]').forEach(el => {
+        el.onclick = (e) => {
+            e.stopPropagation();
+            currentDate = new Date(el.dataset.navDate + 'T12:00:00');
+            currentView = 'week';
+            document.getElementById('viewToggleBtn').innerHTML = '<i class="fas fa-calendar-week"></i> Week';
+            renderCalendar();
+        };
+    });
 }
 
-// ========== HELPERS ==========
+// ========== EMPTY STATE ==========
+function renderEmptyState(container) {
+    const emptyDiv = document.createElement('div');
+    emptyDiv.className = 'empty-state';
+    emptyDiv.innerHTML = `
+        <i class="fas fa-calendar-plus"></i>
+        <div class="text-lg font-medium mb-1">No events this week</div>
+        <div class="text-sm">Tap <strong>+</strong> to add your first event</div>
+    `;
+    container.style.position = 'relative';
+    container.appendChild(emptyDiv);
+}
+
+// ========== EVENT TOOLTIP (hover) ==========
+let tooltipEl = null;
+
+function showEventTooltip(ev, x, y) {
+    hideEventTooltip();
+    tooltipEl = document.createElement('div');
+    tooltipEl.className = 'event-tooltip';
+    const stars = '★'.repeat(ev.priority || 3) + '☆'.repeat(5 - (ev.priority || 3));
+    tooltipEl.innerHTML = `
+        <div class="tooltip-title">${escapeHtml(ev.name)}</div>
+        <div class="tooltip-time">${formatTime(toMinutes(ev.startTime))} – ${formatTime(toMinutes(ev.endTime))}</div>
+        <div style="font-size:0.75rem; color:#f59e0b;">${stars}</div>
+        ${ev.travelMins ? `<div style="color:#9ca3af; font-size:0.7rem;">🚗 ${ev.travelMins} min travel</div>` : ''}
+        ${ev.notes ? `<div class="tooltip-notes">${escapeHtml(ev.notes.slice(0, 80))}${ev.notes.length > 80 ? '…' : ''}</div>` : ''}
+        <div style="font-size:0.65rem; color:#9ca3af; margin-top:0.25rem;">Right‑click for options</div>
+    `;
+    tooltipEl.style.left = (x + 12) + 'px';
+    tooltipEl.style.top = (y - 10) + 'px';
+    document.body.appendChild(tooltipEl);
+    // Keep inside viewport
+    const rect = tooltipEl.getBoundingClientRect();
+    if (rect.right > window.innerWidth - 10) {
+        tooltipEl.style.left = (x - rect.width - 12) + 'px';
+    }
+    if (rect.bottom > window.innerHeight - 10) {
+        tooltipEl.style.top = (y - rect.height + 10) + 'px';
+    }
+}
+
+function hideEventTooltip() {
+    if (tooltipEl) { tooltipEl.remove(); tooltipEl = null; }
+}
+
+// ========== ATTACH ALL CALENDAR INTERACTIONS ==========
+function attachCalendarEvents() {
+    const container = document.getElementById('calendarGrid');
+    if (!container) return;
+
+    // Click: open event modal
+    container.onclick = (e) => {
+        const block = e.target.closest('.event-block, .event-block-month');
+        if (block) {
+            e.stopPropagation();
+            hideEventTooltip();
+            const id = parseInt(block.dataset.id);
+            const dateStr = block.dataset.date;
+            const ev = events.find(ev => ev.id === id);
+            if (ev) openEventModal(ev, dateStr);
+        }
+    };
+
+    // Right-click: context menu
+    container.oncontextmenu = (e) => {
+        const block = e.target.closest('.event-block, .event-block-month');
+        const cell = e.target.closest('.day-cell');
+        if (block) {
+            e.preventDefault();
+            hideEventTooltip();
+            showContextMenu(e.clientX, e.clientY, parseInt(block.dataset.id), block.dataset.date);
+        } else if (cell && cell.dataset.date) {
+            e.preventDefault();
+            openBusyModal(null, cell.dataset.date);
+        }
+    };
+
+    // Hover tooltip (desktop only)
+    if (window.matchMedia('(hover: hover)').matches) {
+        container.addEventListener('mouseover', (e) => {
+            const block = e.target.closest('.event-block, .event-block-month');
+            if (block) {
+                const id = parseInt(block.dataset.id);
+                const ev = events.find(ev => ev.id === id);
+                if (ev) showEventTooltip(ev, e.clientX, e.clientY);
+            }
+        });
+        container.addEventListener('mouseout', (e) => {
+            if (!e.target.closest('.event-block, .event-block-month')) hideEventTooltip();
+        });
+        container.addEventListener('mousemove', (e) => {
+            if (tooltipEl) {
+                tooltipEl.style.left = (e.clientX + 12) + 'px';
+                tooltipEl.style.top = (e.clientY - 10) + 'px';
+            }
+        });
+    }
+
+    // Keyboard navigation on event blocks (focusable)
+    container.querySelectorAll('.event-block').forEach(block => {
+        block.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                const id = parseInt(block.dataset.id);
+                const dateStr = block.dataset.date;
+                const ev = events.find(ev => ev.id === id);
+                if (ev) openEventModal(ev, dateStr);
+            }
+            if (e.key === 'ContextMenu' || (e.shiftKey && e.key === 'F10')) {
+                e.preventDefault();
+                const rect = block.getBoundingClientRect();
+                showContextMenu(rect.left, rect.bottom, parseInt(block.dataset.id), block.dataset.date);
+            }
+        });
+    });
+
+    // Busy overlay click: open busy modal for that day
+    container.querySelectorAll('.busy-overlay').forEach(overlay => {
+        overlay.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const cell = overlay.closest('.day-cell');
+            if (cell) openBusyModal(null, cell.dataset.date);
+        });
+    });
+
+    // Long press for mobile (touch)
+    let pressTimer = null;
+    container.addEventListener('touchstart', (e) => {
+        const block = e.target.closest('.event-block, .event-block-month');
+        const cell = e.target.closest('.day-cell');
+        pressTimer = setTimeout(() => {
+            if (block) {
+                showContextMenu(
+                    e.touches[0].clientX,
+                    e.touches[0].clientY,
+                    parseInt(block.dataset.id),
+                    block.dataset.date
+                );
+            } else if (cell && cell.dataset.date) {
+                openBusyModal(null, cell.dataset.date);
+            }
+            e.preventDefault();
+        }, 500);
+    }, { passive: false });
+    container.addEventListener('touchend', () => { if (pressTimer) clearTimeout(pressTimer); });
+    container.addEventListener('touchmove', () => { if (pressTimer) clearTimeout(pressTimer); });
+}
+
+// ========== UI HELPERS ==========
 function updateDateRangeDisplay() {
     const display = document.getElementById('dateRangeDisplay');
     if (!display) return;
-    display.innerText = currentView === 'week' ? 'Week View' : currentDate.toLocaleString('default', { month: 'long', year: 'numeric' });
+    if (currentView === 'week') {
+        const startOfWeek = new Date(currentDate);
+        startOfWeek.setDate(currentDate.getDate() - ((currentDate.getDay() - firstDayOfWeek + 7) % 7));
+        const endOfWeek = addDays(startOfWeek, 6);
+        display.innerText = `${startOfWeek.toLocaleDateString()} – ${endOfWeek.toLocaleDateString()}`;
+    } else {
+        display.innerText = currentDate.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+    }
 }
 
 function formatTime(min) {
@@ -132,31 +437,64 @@ function updateNowLine() {
     if (currentView !== 'week') return;
     const now = new Date();
     const nowMin = now.getHours() * 60 + now.getMinutes();
+    const startHour = 6; // we use dynamic scaling; but the line should be placed relative to the visible rows
+    // Find the row index based on earliestHour (global variable? we need to compute it again or store)
+    // For simplicity, we compute the row index based on a fixed 6am start; but dynamic scaling changes that.
+    // A more robust method: find the row element that contains the current time by comparing data-time attribute.
+    // We'll add a data-time attribute to each timeline-row in the render.
+    // But to keep it simple, we'll just find the row by checking its time column text.
     const rows = document.querySelectorAll('.timeline-row');
-    const startHour = 6;
-    const idx = Math.floor((nowMin - startHour * 60) / 30);
-    if (idx >= 0 && rows[idx]) {
-        document.querySelector('.now-line')?.remove();
-        const line = document.createElement('div');
-        line.className = 'now-line';
-        line.style.top = `${rows[idx].offsetTop + 20}px`;
-        document.querySelector('.calendar-grid').appendChild(line);
+    for (let i = 0; i < rows.length; i++) {
+        const timeCol = rows[i].querySelector('.time-col');
+        if (timeCol) {
+            const timeText = timeCol.innerText;
+            const parsed = parseTime(timeText);
+            if (parsed && parsed >= nowMin - 30 && parsed <= nowMin + 30) {
+                const existing = document.querySelector('.now-line');
+                if (existing) existing.remove();
+                const line = document.createElement('div');
+                line.className = 'now-line';
+                line.style.top = `${rows[i].offsetTop + 20}px`;
+                document.querySelector('.calendar-grid').appendChild(line);
+                break;
+            }
+        }
     }
+}
+
+function parseTime(timeStr) {
+    // expects format like "9:00 AM" or "09:00"
+    if (timeFormat === '12h') {
+        const match = timeStr.match(/(\d+):(\d+)\s*(AM|PM)/i);
+        if (match) {
+            let h = parseInt(match[1]);
+            const m = parseInt(match[2]);
+            const ampm = match[3].toUpperCase();
+            if (ampm === 'PM' && h !== 12) h += 12;
+            if (ampm === 'AM' && h === 12) h = 0;
+            return h * 60 + m;
+        }
+    } else {
+        const [h, m] = timeStr.split(':');
+        if (h && m) return parseInt(h) * 60 + parseInt(m);
+    }
+    return null;
 }
 
 function scrollToNow() {
     if (currentView !== 'week') return;
     const now = new Date();
-    const idx = Math.floor((now.getHours() * 60 + now.getMinutes() - 360) / 30);
+    const nowMin = now.getHours() * 60 + now.getMinutes();
     const rows = document.querySelectorAll('.timeline-row');
-    if (idx >= 0 && rows[idx]) rows[idx].scrollIntoView({ block: 'center' });
-}
-
-function attachCalendarEvents() {
-    // Logic for tooltips and clicks moved here as requested
-    const container = document.getElementById('calendarGrid');
-    container.oncontextmenu = (e) => {
-        const block = e.target.closest('.event-block');
-        if (block) { e.preventDefault(); showContextMenu(e.clientX, e.clientY, parseInt(block.dataset.id), block.dataset.date); }
-    };
+    for (let i = 0; i < rows.length; i++) {
+        const timeCol = rows[i].querySelector('.time-col');
+        if (timeCol) {
+            const timeText = timeCol.innerText;
+            const parsed = parseTime(timeText);
+            if (parsed && parsed >= nowMin - 30 && parsed <= nowMin + 30) {
+                rows[i].scrollIntoView({ behavior: 'smooth', block: 'center' });
+                break;
+            }
+        }
+    }
 }
