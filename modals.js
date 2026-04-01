@@ -1125,7 +1125,12 @@ function showBottomSheet(eventId, dateStr) {
     }
     if (deleteBtn) deleteBtn.onclick = async () => {
         if (confirm(`Delete "${ev.name}" on ${dateStr}? This cannot be undone.`)) {
-            await deleteRecord('events', eventId);
+            if (typeof EventManager !== 'undefined' && EventManager.deleteEvent) {
+                await EventManager.deleteEvent(eventId);
+            } else {
+                // Fallback (should not happen)
+                await deleteRecord('events', eventId);
+            }
             await fullRefresh();
             closeBottomSheet();
             showUndoToast('Delete', { eventId, dateStr });
