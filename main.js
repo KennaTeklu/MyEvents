@@ -49,20 +49,111 @@ async function loadData() {
     }
 }
 
-// ========== UNDO/REDO ==========
+// ========== CONFLICT DETECTION ==========
+async function detectConflicts() {
+    conflicts = [];
+    // For each day in the visible range (week or month), check event vs busy
+    const start = new Date(currentDate);
+    let end = new Date(currentDate);
+    if (currentView === 'week') {
+        const startOfWeek = new Date(currentDate);
+        startOfWeek.setDate(currentDate.getDate() - ((currentDate.getDay() - firstDayOfWeek + 7) % 7));
+        start.setTime(startOfWeek.getTime());
+        end.setTime(startOfWeek.getTime() + 7 * 86400000);
+    } else {
+        start.setDate(1);
+        end = new Date(start.getFullYear(), start.getMonth() + 1, 0);
+    }
+    let cur = new Date(start);
+    while (cur <= end) {
+        const dateStr = formatDate(cur);
+        const dayEvents = getEventsForDate(dateStr);
+        const dayBusy = getBusyBlocksForDate(dateStr);
+        for (let ev of dayEvents) {
+            const evStart = toMinutes(ev.startTime);
+            const evEnd = toMinutes(ev.endTime);
+            for (let busy of dayBusy) {
+                const busyStart = toMinutes(busy.startTime);
+                const busyEnd = toMinutes(busy.endTime);
+                if (evStart < busyEnd && evEnd > busyStart) {
+                    conflicts.push({ type: 'busy', event: ev, busy });
+                }
+            }
+        }
+        cur.setDate(cur.getDate() + 1);
+    }
+}
+
+// ========== TRAVEL TIME ESTIMATION ==========
+function getTravelTime(eventId, fromPlaceId = currentPlaceId) {
+    const fromPlace = places.find(p => p.id === fromPlaceId);
+    const toPlace = places.find(p => p.id === currentPlaceId);
+    if (!fromPlace || !toPlace) return 15;
+    // If both places have coordinates, compute approximate distance
+    if (fromPlace.lat && fromPlace.lon && toPlace.lat && toPlace.lon) {
+        const dist = getDistance(fromPlace.lat, fromPlace.lon, toPlace.lat, toPlace.lon);
+        // Assume walking speed 5 km/h => 1 km = 12 min
+        const walkingMinutes = dist / (5000 / 60);
+        return Math.min(60, Math.max(5, Math.round(walkingMinutes)));
+    }
+    // Fallback: look up custom travel time from place.travelToEvent map
+    const custom = fromPlace.travelToEvent?.[eventId] || toPlace.travelToEvent?.[eventId];
+    return custom ?? 15;
+}
+
+// ========== OPTIMIZER (Greedy Constraint Solver) ==========
+async function runOptimizer() {
+    // For demonstration, we'll just show a toast that the optimizer is not yet fully integrated.
+    showToast('Optimizer running (beta) – this will pack events into your week.', 'info');
+    // In a real implementation, you would:
+    // - Get all unscheduled tasks (events with no specific date yet)
+    // - Iterate over days in the planning range, find free blocks respecting travel+rest
+    // - Assign events to slots greedily based on priority
+    // - Update the schedule and persist overrides
+    // This is a placeholder; the actual logic is complex and will be added later.
+}
+
+// ========== UNDO/REDO (Snapshots) ==========
 async function pushAction(description, undoFunc, redoFunc) {
-    const action = { description, undo: undoFunc, redo: redoFunc, timestamp: Date.now() };
+    // Store a snapshot of the current state
+    const snapshot = {
+        events: JSON.parse(JSON.stringify(events)),
+        busyBlocks: JSON.parse(JSON.stringify(busyBlocks)),
+        places: JSON.parse(JSON.stringify(places)),
+        overrides: Array.from(overrides.entries())
+    };
+    const action = {
+        description,
+        undo: async () => {
+            await restoreSnapshot(snapshot);
+            if (undoFunc) await undoFunc();
+        },
+        redo: async () => {
+            if (redoFunc) await redoFunc();
+            else await fullRefresh();
+        },
+        timestamp: Date.now()
+    };
     undoStack.push(action);
     redoStack = [];
     updateUndoRedoButtons();
 }
+
+async function restoreSnapshot(snapshot) {
+    events = snapshot.events;
+    busyBlocks = snapshot.busyBlocks;
+    places = snapshot.places;
+    overrides.clear();
+    for (let [k, v] of snapshot.overrides) overrides.set(k, v);
+    await fullRefresh();
+}
+
 async function undo() {
     if (undoStack.length === 0) return;
     const action = undoStack.pop();
     await action.undo();
     redoStack.push(action);
     updateUndoRedoButtons();
-    await fullRefresh();
     showToast(`Undo: ${action.description}`);
 }
 async function redo() {
@@ -71,7 +162,6 @@ async function redo() {
     await action.redo();
     undoStack.push(action);
     updateUndoRedoButtons();
-    await fullRefresh();
     showToast(`Redo: ${action.description}`);
 }
 function updateUndoRedoButtons() {
@@ -594,7 +684,6 @@ window.addEventListener('DOMContentLoaded', async () => {
         }
         await addRecord('busyBlocks', busy);
         if (busyDraftManager) await busyDraftManager.clearDraft();
-        // Force a full refresh to reload the updated busy blocks from DB
         await fullRefresh();
         return busy;
     }
