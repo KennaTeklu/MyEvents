@@ -46,15 +46,35 @@ var busyDraftManager = null;  // Instance of FormDraft class (busy modal)
 var undoStack = []; // Stores JSON snapshots of state (for undoing actions)
 var redoStack = []; // Stores JSON snapshots for forward travel (redo)
 
-// ========== WIZARD STATE (First‑run wizard) ==========
-var wizardStep = 1;
+// ========== WIZARD STATE (Enhanced 7‑step onboarding) ==========
+var WIZARD_TOTAL_STEPS = 7;     // Total number of wizard steps
+var wizardStep = 1;             // Current step (1‑based)
 var wizardData = {
-    home: null,
-    eventName: '',
-    openTime: '09:00',
-    closeTime: '17:00',
-    stay: 60,
-    restPolicy: 'home'
+    // Step 1: Location (GPS)
+    homeLat: null,              // Latitude of home place (if acquired)
+    homeLon: null,              // Longitude of home place
+    homeName: 'Home',           // Name of the home place
+    homeRadius: 30,             // Geofencing radius (meters)
+
+    // Step 2: First recurring activity
+    eventName: '',              // Name of first event
+
+    // Step 3: Weekly recurrence days (0=Sun ... 6=Sat)
+    weeklyDays: [],             // e.g., [1,2,3,4,5] for weekdays
+
+    // Step 4: Time window & duration
+    openTime: '09:00',          // Start time of event window
+    closeTime: '17:00',         // End time of event window
+    stay: 60,                   // Duration in minutes
+
+    // Step 5: Rest policy
+    restPolicy: 'home',         // 'home' | 'far' | 'none'
+    farMinutes: 10,             // Threshold for "only if far" (only used if restPolicy === 'far')
+
+    // Step 6: Notifications
+    notificationsGranted: false, // Whether user granted permission
+    notifyDayBefore: true,      // Day‑before reminder
+    notifyMinutesBefore: 60      // Minutes‑before reminder
 };
 
 // ========== NO‑GO BLOCKS (Derived from overrides for performance, but may be stored separately) ==========
