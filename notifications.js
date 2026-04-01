@@ -1,6 +1,7 @@
 // notifications.js - In-app notification management
-// Must be loaded after state.js, utils.js, db.js
+// Must be loaded after state.js, utils.js, db.js, calendar.js (for formatTime)
 
+// ========== NOTIFICATION LOG HELPERS ==========
 function addToNotifLog(msg, eventId, key) {
     notificationLog.unshift({ msg, eventId, time: new Date(), snoozedUntil: null, read: false, key });
     if (notificationLog.length > 50) notificationLog.pop();
@@ -10,11 +11,10 @@ function addToNotifLog(msg, eventId, key) {
 
 function updateNotifBadge() {
     const badge = document.getElementById('notifBadge');
+    if (!badge) return;
     const count = notificationLog.filter(n => !n.read).length;
-    if (badge) {
-        badge.textContent = count;
-        badge.classList.toggle('hidden', count === 0);
-    }
+    badge.textContent = count;
+    badge.classList.toggle('hidden', count === 0);
 }
 
 function renderNotifPanel() {
@@ -30,16 +30,34 @@ function renderNotifPanel() {
                 <div class="font-medium">${escapeHtml(n.msg)}</div>
                 <div class="text-gray-400" style="font-size:0.7rem;">${n.time.toLocaleTimeString()}</div>
             </div>
-            <button class="notif-snooze" data-idx="${idx}">Snooze 10m</button>
+            <div class="flex gap-2">
+                <button class="notif-snooze" data-idx="${idx}">Snooze 10m</button>
+                <button class="notif-dismiss" data-idx="${idx}" style="color:#9ca3af;">✕</button>
+            </div>
         </div>
     `).join('');
-    // Attach snooze handlers
+    // Attach event handlers
     document.querySelectorAll('.notif-snooze').forEach(btn => {
         btn.onclick = (e) => {
             const idx = parseInt(btn.dataset.idx);
             if (!isNaN(idx)) snoozeNotification(idx);
         };
     });
+    document.querySelectorAll('.notif-dismiss').forEach(btn => {
+        btn.onclick = (e) => {
+            const idx = parseInt(btn.dataset.idx);
+            if (!isNaN(idx)) dismissNotification(idx);
+        };
+    });
+}
+
+function dismissNotification(idx) {
+    const notif = notificationLog[idx];
+    if (!notif) return;
+    notificationLog.splice(idx, 1);
+    updateNotifBadge();
+    renderNotifPanel();
+    showToast('Notification dismissed');
 }
 
 function snoozeNotification(idx) {
@@ -71,6 +89,7 @@ function fireNotification(msg, ev, key) {
     addToNotifLog(msg, ev.id, key);
 }
 
+// ========== NOTIFICATION SCHEDULER ==========
 function updateNotifications() {
     if (notificationInterval) clearInterval(notificationInterval);
     
@@ -83,7 +102,7 @@ function updateNotifications() {
         const nowMin = now.getHours() * 60 + now.getMinutes();
 
         for (let ev of events) {
-            const eventDate = new Date(ev.startDate);
+            const eventDate = new Date(ev.startDate + 'T12:00:00'); // Force midday for date comparison
             const eventDateStr = formatDate(eventDate);
             const eventStartMin = toMinutes(ev.startTime);
             const diffDays = Math.ceil((eventDate - now) / (1000 * 60 * 60 * 24));
@@ -137,3 +156,34 @@ function updateNotifications() {
         if (now.getHours() === 0 && now.getMinutes() < 2) shownNotifications.clear();
     }, 60000);
 }
+
+// ========== INITIALIZATION OF NOTIFICATION UI ==========
+document.addEventListener('DOMContentLoaded', () => {
+    const notifBell = document.getElementById('notifBell');
+    const notifPanel = document.getElementById('notifPanel');
+    if (notifBell && notifPanel) {
+        notifBell.addEventListener('click', (e) => {
+            e.stopPropagation();
+            notifPanel.classList.toggle('hidden');
+            // Mark all as read when opened
+            notificationLog.forEach(n => n.read = true);
+            updateNotifBadge();
+            renderNotifPanel();
+        });
+        document.addEventListener('click', (e) => {
+            if (!notifPanel.contains(e.target) && e.target !== notifBell) {
+                notifPanel.classList.add('hidden');
+            }
+        });
+        const clearAllBtn = document.getElementById('clearAllNotifs');
+        if (clearAllBtn) {
+            clearAllBtn.addEventListener('click', () => {
+                notificationLog.length = 0;
+                updateNotifBadge();
+                renderNotifPanel();
+                notifPanel.classList.add('hidden');
+                showToast('All notifications cleared');
+            });
+        }
+    }
+});
