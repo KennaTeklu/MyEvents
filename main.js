@@ -163,11 +163,20 @@ async function pushAction(description, undoFunc, redoFunc) {
 }
 
 async function restoreSnapshot(snapshot) {
-    events = snapshot.events;
-    busyBlocks = snapshot.busyBlocks;
-    places = snapshot.places;
-    overrides.clear();
-    for (let [k, v] of snapshot.overrides) overrides.set(k, v);
+    // 1. Overwrite IndexedDB with the historical snapshot data
+    await clearStore('events');
+    for (let ev of snapshot.events) await addRecord('events', ev);
+    
+    await clearStore('busyBlocks');
+    for (let bb of snapshot.busyBlocks) await addRecord('busyBlocks', bb);
+    
+    await clearStore('places');
+    for (let pl of snapshot.places) await addRecord('places', pl);
+    
+    await clearStore('overrides');
+    for (let [k, v] of snapshot.overrides) await putRecord('overrides', v);
+    
+    // 2. Reload data from DB and refresh UI
     await fullRefresh();
 }
 
@@ -561,7 +570,7 @@ window.addEventListener('DOMContentLoaded', async () => {
                     color: document.getElementById('eventColor').value,
                     startDate: editingDateStr || formatDate(new Date()),
                     startTime: document.getElementById('eventOpenTime').value,
-                    endTime: fromMinutes(toMinutes(document.getElementById('eventOpenTime').value) + 60),
+                    endTime: fromMinutes(toMinutes(document.getElementById('eventOpenTime').value) + parseInt(document.getElementById('eventMinStay').value || 60)),
                     priority: document.querySelectorAll('#eventPriorityStars .fa-star.selected').length,
                     travelMins: 15,
                     weeklyDays: Array.from(document.querySelectorAll('#weeklyDaysContainer input:checked')).map(cb => parseInt(cb.value)),
