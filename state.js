@@ -9,6 +9,18 @@ var places = [];           // Geofenced location objects with lat, lon, radius, 
 var overrides = new Map(); // Exceptions/Skips: Key format "eventID_YYYY-MM-DD"
 var attendanceLog = [];    // Historical record for recency-based reminders
 
+// ========== NEW DATA STORES (Module 2: Smart Features) ==========
+var todos = [];            // To‑do items with due dates, priorities, recurrence, completion
+var scheduledEvents = [];  // Optimizer assignments that persist (override master recurrence for specific dates)
+var learningData = {       // User behavior patterns for personalization
+    eventDurations: [],    // Actual time spent at events (eventId, dateStr, duration, timestamp)
+    travelTimes: [],       // Actual travel times between places (fromPlaceId, toPlaceId, minutes, timestamp)
+    preferences: [],       // User likes/dislikes (eventId, dateStr, type, timestamp)
+    preferredTimeSlots: {} // Map: eventId -> array of hour-minute scores (0-23, 0-59)
+};
+var locationHistory = [];  // Movement patterns (timestamp, lat, lon, placeId, sublocationId)
+var userFeedback = [];     // Explicit feedback (like, dislike, comment) on events or suggestions
+
 // ========== UI & VIEW STATE (Module 6: Interactive Rendering) ==========
 var currentView = 'week';  // 'week' | 'month'
 var currentDate = new Date(); // The "Anchor Date" for the current view (e.g., week start)
@@ -24,6 +36,11 @@ var currentSchedule = [];  // Holds the optimized schedule after running the opt
 var scheduleRangeStart = new Date(); // Start date for optimizer planning range
 var weeksTotal = 1;        // Number of weeks to plan ahead in optimizer
 
+// ========== ENHANCED OPTIMIZER STATE ==========
+var optimizerLock = false;         // Prevent concurrent optimization runs
+var planningHorizonWeeks = 4;      // Default planning horizon (user-adjustable)
+var lastOptimizerRun = null;       // Timestamp of last optimizer run
+
 // ========== NOTIFICATION ENGINE (Module 8: Distance-Based Notifications) ==========
 var notifyDayBefore = true;
 var notifyMinutesBefore = 60;
@@ -35,12 +52,21 @@ var notificationInterval = null;
 // ========== GPS & LOCATION ENGINE (Module 4: Geospatial Sensor) ==========
 var currentPlaceId = 1;    // ID of the place the user is currently at
 var gpsWatchId = null;     // ID of the active geolocation watcher
+var currentLocation = {     // More detailed location info
+    lat: null,
+    lon: null,
+    placeId: null,
+    sublocationId: null,
+    sublocationName: null,
+    timestamp: null
+};
 
 // ========== EDITOR & MODAL STATE (Module 7: Indestructible Form Drafts) ==========
 var editingEventId = null; // ID of event currently being edited (null = new event)
 var editingDateStr = null; // Specific occurrence date being overridden
 var eventDraftManager = null; // Instance of FormDraft class (event modal)
 var busyDraftManager = null;  // Instance of FormDraft class (busy modal)
+var todoDraftManager = null;  // Instance of FormDraft class (todo modal)
 
 // ========== UNDO / REDO COMMAND PATTERN (Module 9: Immutable Action History) ==========
 var undoStack = []; // Stores JSON snapshots of state (for undoing actions)
@@ -80,3 +106,33 @@ var wizardData = {
 // ========== NO‑GO BLOCKS (Derived from overrides for performance, but may be stored separately) ==========
 // The optimizer uses noGoBlocks as an expanded list for quick access.
 var noGoBlocks = []; // This will be populated by expandNoGoBlocks when needed.
+
+// ========== USER SETTINGS GROUP (Easier access) ==========
+var userSettings = {
+    // General
+    firstDayOfWeek: 1,
+    timeFormat: '12h',
+    darkMode: false,
+    
+    // Scheduling
+    restPolicy: 'home',
+    farMinutes: 10,
+    planningHorizonWeeks: 4,
+    travelSpeed: 'walking',     // 'walking' or 'driving'
+    
+    // Notifications
+    notifyDayBefore: true,
+    notifyMinutesBefore: 60,
+    notifyTravelLead: 5,
+    notificationSound: 'default',
+    quietHoursStart: 22,        // 10 PM
+    quietHoursEnd: 7,           // 7 AM
+    
+    // To‑dos
+    showTodosInCalendar: false,
+    defaultTodoDueOffset: 1,    // days from creation
+    
+    // Learning
+    autoLearn: true,
+    adaptToUserBehavior: true
+};
