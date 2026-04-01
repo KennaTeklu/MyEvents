@@ -1,4 +1,4 @@
-// utils.js - Core logic engine, time math, and recurrence expansion
+// utils.js - Core logic engine, time math, recurrence expansion, and helpers
 // Must be loaded after state.js and db.js
 
 // ========== TIME MATH (Timezone‑safe) ==========
@@ -35,6 +35,46 @@ function getWeekNumber(date) {
     const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
     const weekNo = Math.ceil(((d - yearStart) / 86400000 + 1) / 7);
     return weekNo;
+}
+
+function getMonthNumber(date) {
+    return date.getMonth() + 1; // 1-12
+}
+
+function getYear(date) {
+    return date.getFullYear();
+}
+
+function isSameDay(date1, date2) {
+    return formatDate(date1) === formatDate(date2);
+}
+
+function isSameWeek(date1, date2) {
+    return getWeekNumber(date1) === getWeekNumber(date2) && date1.getFullYear() === date2.getFullYear();
+}
+
+function isSameMonth(date1, date2) {
+    return date1.getMonth() === date2.getMonth() && date1.getFullYear() === date2.getFullYear();
+}
+
+function formatTimeWithSeconds(min) {
+    let h = Math.floor(min / 60);
+    let m = min % 60;
+    let s = Math.floor((min - Math.floor(min)) * 60);
+    return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+}
+
+function formatRelativeTime(targetDate, now = new Date()) {
+    const diffMs = targetDate - now;
+    const diffMins = Math.floor(diffMs / 60000);
+    if (diffMins < 0) return 'overdue';
+    if (diffMins < 60) return `${diffMins} min`;
+    const diffHours = Math.floor(diffMins / 60);
+    if (diffHours < 24) return `${diffHours} hour${diffHours > 1 ? 's' : ''}`;
+    const diffDays = Math.floor(diffHours / 24);
+    if (diffDays < 7) return `${diffDays} day${diffDays > 1 ? 's' : ''}`;
+    const diffWeeks = Math.floor(diffDays / 7);
+    return `${diffWeeks} week${diffWeeks > 1 ? 's' : ''}`;
 }
 
 // ========== RECURRENCE ENGINE ==========
@@ -248,4 +288,147 @@ function getDistance(lat1, lon1, lat2, lon2) {
     const Δλ = (lon2 - lon1) * Math.PI / 180;
     const a = Math.sin(Δφ / 2) ** 2 + Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ / 2) ** 2;
     return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+// ========== NEW HELPER FUNCTIONS ==========
+
+// Travel time estimation based on distance and speed (walking ~5 km/h, driving ~50 km/h)
+function estimateTravelTime(distanceMeters, mode = 'walking') {
+    const speedKmPerHour = mode === 'walking' ? 5 : 50;
+    const distanceKm = distanceMeters / 1000;
+    const hours = distanceKm / speedKmPerHour;
+    return Math.round(hours * 60); // minutes
+}
+
+// Generate a UUID (v4)
+function generateUUID() {
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+        const r = Math.random() * 16 | 0;
+        const v = c === 'x' ? r : (r & 0x3 | 0x8);
+        return v.toString(16);
+    });
+}
+
+// Deep clone for state snapshots
+function deepClone(obj) {
+    if (obj === null || typeof obj !== 'object') return obj;
+    if (obj instanceof Date) return new Date(obj);
+    if (obj instanceof Map) {
+        const clone = new Map();
+        for (const [k, v] of obj.entries()) clone.set(deepClone(k), deepClone(v));
+        return clone;
+    }
+    if (Array.isArray(obj)) return obj.map(deepClone);
+    const clonedObj = {};
+    for (const key in obj) {
+        if (obj.hasOwnProperty(key)) clonedObj[key] = deepClone(obj[key]);
+    }
+    return clonedObj;
+}
+
+// Debounce function
+function debounce(func, wait) {
+    let timeout;
+    return function executedFunction(...args) {
+        const later = () => {
+            clearTimeout(timeout);
+            func(...args);
+        };
+        clearTimeout(timeout);
+        timeout = setTimeout(later, wait);
+    };
+}
+
+// Throttle function
+function throttle(func, limit) {
+    let inThrottle;
+    return function(...args) {
+        if (!inThrottle) {
+            func.apply(this, args);
+            inThrottle = true;
+            setTimeout(() => inThrottle = false, limit);
+        }
+    };
+}
+
+// Slugify a string (for safe IDs)
+function slugify(str) {
+    return str.toLowerCase()
+        .replace(/[^\w\s-]/g, '')
+        .replace(/[\s_-]+/g, '-')
+        .replace(/^-+|-+$/g, '');
+}
+
+// Simple email validation
+function isValidEmail(email) {
+    return /^[^\s@]+@([^\s@]+\.)+[^\s@]+$/.test(email);
+}
+
+// Simple phone validation (basic)
+function isValidPhone(phone) {
+    return /^[\d\s\-\+\(\)]{8,}$/.test(phone);
+}
+
+// ========== ENHANCED RECURRENCE HELPERS (for scheduled events) ==========
+// Generate all occurrences of an event within a date range, respecting the event's recurrence rule
+function getAllOccurrences(event, startDate, endDate) {
+    const occurrences = [];
+    let cur = new Date(startDate);
+    cur.setHours(12, 0, 0);
+    while (cur <= endDate) {
+        const wd = cur.getDay();
+        const dateNum = cur.getDate();
+        let include = false;
+        if (event.repeat === 'none') {
+            include = (event.startDate === formatDate(cur));
+        } else if (event.repeat === 'daily') {
+            include = true;
+        } else if (event.repeat === 'weekly') {
+            include = event.weeklyDays && event.weeklyDays.includes(wd);
+        } else if (event.repeat === 'monthly') {
+            include = (event.monthlyDay == dateNum);
+        }
+        if (include) {
+            occurrences.push(new Date(cur));
+        }
+        cur.setDate(cur.getDate() + 1);
+    }
+    return occurrences;
+}
+
+// Get scheduled event (from scheduledEvents) for a specific event and date
+function getScheduledEvent(eventId, dateStr) {
+    return scheduledEvents.find(se => se.eventId === eventId && se.dateStr === dateStr);
+}
+
+// Merge master events with scheduled assignments for display
+function getDisplayEventsForDate(dateStr) {
+    const masterEvents = getEventsForDate(dateStr);
+    const scheduledForDate = scheduledEvents.filter(se => se.dateStr === dateStr);
+    // If there's a scheduled assignment for a master event, replace that occurrence
+    // For events that are not in master but have a scheduled assignment (e.g., one‑time optimizer picks), include them.
+    const result = [];
+    const processedMasterIds = new Set();
+    for (const master of masterEvents) {
+        const scheduled = scheduledForDate.find(se => se.eventId === master.id);
+        if (scheduled) {
+            // Use scheduled version (override time, duration, etc.)
+            result.push({ ...master, ...scheduled, isScheduled: true });
+            processedMasterIds.add(master.id);
+        } else {
+            result.push(master);
+        }
+    }
+    // Add any scheduled events that don't correspond to a master (e.g., one‑time optimizer picks)
+    for (const scheduled of scheduledForDate) {
+        if (!processedMasterIds.has(scheduled.eventId)) {
+            const master = events.find(e => e.id === scheduled.eventId);
+            if (master) {
+                result.push({ ...master, ...scheduled, isScheduled: true });
+            } else {
+                result.push(scheduled); // fallback
+            }
+        }
+    }
+    return result;
 }
