@@ -323,7 +323,14 @@ const Scheduler = (function() {
             const end = new Date();
             end.setDate(end.getDate() + (planningHorizonWeeks * 7));
             const result = await schedule(start, end);
-            showToast(`Scheduled ${result.length} events`, 'success');
+            if (result.length > 0) {
+                showToast(`Scheduled ${result.length} events`, 'success');
+            } else {
+                // Optionally show a less intrusive message only if something changed? For now, silent.
+                // If you still want to show occasional info, you could check if there were any events to schedule.
+                // But to stop spam, we'll only show when there's a change.
+                console.log('Scheduler: no events to schedule');
+            }
             return result;
         }
     };
