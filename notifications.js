@@ -83,10 +83,52 @@ function fireNotification(msg, ev, key) {
             icon: '/favicon.ico',
             tag: `event_${ev.id}` // prevents duplicate OS notifications
         });
-    } else if (Notification.permission !== "denied") {
-        Notification.requestPermission();
+    } else if (Notification.permission === "default") {
+        // Only request if user hasn't decided yet – but we will handle this via wizard
+        // Do not auto-request here; let the wizard handle it.
     }
     addToNotifLog(msg, ev.id, key);
+}
+
+// ========== NOTIFICATION PERMISSION HELPER ==========
+/**
+ * Requests notification permission and returns the permission status.
+ * @returns {Promise<string>} 'granted', 'denied', or 'default'
+ */
+async function requestNotificationPermission() {
+    if (!("Notification" in window)) {
+        showToast('Notifications not supported in this browser', 'error');
+        return 'unsupported';
+    }
+    
+    // If already granted, return immediately
+    if (Notification.permission === "granted") {
+        showToast('Notifications already enabled', 'success');
+        return 'granted';
+    }
+    
+    // If denied, inform user
+    if (Notification.permission === "denied") {
+        showToast('Notifications blocked. Please enable in browser settings.', 'error');
+        return 'denied';
+    }
+    
+    // Request permission
+    try {
+        const permission = await Notification.requestPermission();
+        if (permission === 'granted') {
+            showToast('Notifications enabled!', 'success');
+        } else if (permission === 'denied') {
+            showToast('Notifications blocked', 'error');
+        } else {
+            showToast('Notification permission not granted', 'info');
+        }
+        return permission;
+    } catch (err) {
+        console.error('Notification permission request failed:', err);
+        showToast('Could not request notification permission', 'error');
+        return 'error';
+    }
 }
 
 // ========== NOTIFICATION SCHEDULER ==========
