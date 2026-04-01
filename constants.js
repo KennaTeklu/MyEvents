@@ -1,3 +1,11 @@
+/*
+ * Smart Scheduler – Intelligent Time Manager
+ * Copyright (c) 2025 Kenna Teklu. All rights reserved.
+ *
+ * This software is proprietary and confidential.
+ * Unauthorized copying, distribution, or use of this file, via any medium,
+ * is strictly prohibited. See the LICENSE file for full terms.
+ */
 // constants.js - Global constants for the Smart Scheduler
 // This file must be loaded before any other modules that reference these constants.
 // It provides central definitions for days, time slots, colors, recurrence types, etc.

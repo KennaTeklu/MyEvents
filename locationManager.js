@@ -1,3 +1,11 @@
+/*
+ * Smart Scheduler – Intelligent Time Manager
+ * Copyright (c) 2025 Kenna Teklu. All rights reserved.
+ *
+ * This software is proprietary and confidential.
+ * Unauthorized copying, distribution, or use of this file, via any medium,
+ * is strictly prohibited. See the LICENSE file for full terms.
+ */
 // locationManager.js - Centralized location, places, and travel time management
 // Handles GPS, places, sublocations, travel time estimation, and location history.
 // Must be loaded after db.js, constants.js, state.js, and userLearning.js (for travel time learning)

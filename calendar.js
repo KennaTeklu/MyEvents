@@ -1,3 +1,11 @@
+/*
+ * Smart Scheduler – Intelligent Time Manager
+ * Copyright (c) 2025 Kenna Teklu. All rights reserved.
+ *
+ * This software is proprietary and confidential.
+ * Unauthorized copying, distribution, or use of this file, via any medium,
+ * is strictly prohibited. See the LICENSE file for full terms.
+ */
 // calendar.js - Enhanced Calendar Rendering with scheduled events, todos, travel blocks, feedback
 // Must be loaded after state.js, utils.js, db.js, modals.js
 

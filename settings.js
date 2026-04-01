@@ -1,3 +1,11 @@
+/*
+ * Smart Scheduler – Intelligent Time Manager
+ * Copyright (c) 2025 Kenna Teklu. All rights reserved.
+ *
+ * This software is proprietary and confidential.
+ * Unauthorized copying, distribution, or use of this file, via any medium,
+ * is strictly prohibited. See the LICENSE file for full terms.
+ */
 // settings.js - Settings panel, places, busy blocks, todos, learning data management
 // Must be loaded after state.js, utils.js, db.js
 

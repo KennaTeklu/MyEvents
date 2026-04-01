@@ -1,3 +1,11 @@
+/*
+ * Smart Scheduler – Intelligent Time Manager
+ * Copyright (c) 2025 Kenna Teklu. All rights reserved.
+ *
+ * This software is proprietary and confidential.
+ * Unauthorized copying, distribution, or use of this file, via any medium,
+ * is strictly prohibited. See the LICENSE file for full terms.
+ */
 // undoRedo.js - Undo/Redo command pattern with snapshot history
 // Must be loaded after db.js, constants.js, state.js
 

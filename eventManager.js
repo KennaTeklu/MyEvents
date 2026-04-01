@@ -1,3 +1,11 @@
+/*
+ * Smart Scheduler – Intelligent Time Manager
+ * Copyright (c) 2025 Kenna Teklu. All rights reserved.
+ *
+ * This software is proprietary and confidential.
+ * Unauthorized copying, distribution, or use of this file, via any medium,
+ * is strictly prohibited. See the LICENSE file for full terms.
+ */
 // eventManager.js - Centralized event management
 // Handles CRUD operations, recurrence expansion, overrides, and display events.
 // Must be loaded after db.js, constants.js, and state.js (for events, overrides, scheduledEvents arrays)
