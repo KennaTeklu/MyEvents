@@ -1,6 +1,64 @@
 // settings.js - Settings panel, places, busy blocks management
 // Must be loaded after state.js, utils.js, db.js
 
+// ========== LIVE JSON VISUALIZER ==========
+let liveJSONUpdatePending = false;
+
+async function updateLiveJSON() {
+    // Debounce updates to avoid excessive DOM manipulation
+    if (liveJSONUpdatePending) return;
+    liveJSONUpdatePending = true;
+    
+    // Use requestAnimationFrame to batch updates
+    requestAnimationFrame(async () => {
+        try {
+            const container = document.getElementById('liveJSONContainer');
+            if (!container) {
+                liveJSONUpdatePending = false;
+                return;
+            }
+            
+            // Build a clean representation of current state
+            const stateForExport = {
+                events: events,
+                busyBlocks: busyBlocks,
+                places: places,
+                overrides: Array.from(overrides.values())
+            };
+            
+            const jsonStr = JSON.stringify(stateForExport, null, 2);
+            const pre = container.querySelector('pre');
+            if (pre) {
+                pre.textContent = jsonStr;
+            }
+        } catch (err) {
+            console.error('Failed to update live JSON:', err);
+        } finally {
+            liveJSONUpdatePending = false;
+        }
+    });
+}
+
+// Call this when the Data tab becomes visible
+function refreshLiveJSON() {
+    updateLiveJSON();
+}
+
+// Copy JSON to clipboard
+async function copyLiveJSON() {
+    const container = document.getElementById('liveJSONContainer');
+    if (!container) return;
+    const pre = container.querySelector('pre');
+    if (!pre || !pre.textContent) return;
+    try {
+        await navigator.clipboard.writeText(pre.textContent);
+        showToast('JSON copied to clipboard', 'success');
+    } catch (err) {
+        console.error('Copy failed:', err);
+        showToast('Failed to copy', 'error');
+    }
+}
+
 // ========== SYNC UI WITH GLOBAL SETTINGS ==========
 function syncSettingsToUI() {
     const darkToggle = document.getElementById('darkModeToggle');
@@ -43,8 +101,25 @@ function setupSettingsTabs() {
             panels.forEach(panel => panel.classList.add('hidden'));
             const targetPanel = document.getElementById(`settings-${target}`);
             if (targetPanel) targetPanel.classList.remove('hidden');
+            
+            // Refresh live JSON when Data tab becomes visible
+            if (target === 'data') {
+                refreshLiveJSON();
+            }
         });
     });
+    
+    // Attach copy button listener if it exists
+    const copyBtn = document.getElementById('copyLiveJSONBtn');
+    if (copyBtn) {
+        copyBtn.addEventListener('click', copyLiveJSON);
+    }
+    
+    // Attach manual refresh button listener
+    const refreshBtn = document.getElementById('refreshLiveJSONBtn');
+    if (refreshBtn) {
+        refreshBtn.addEventListener('click', refreshLiveJSON);
+    }
 }
 
 // ========== PLACES MANAGEMENT ==========
