@@ -1,6 +1,59 @@
 // modals.js - Modal handling for events, busy blocks, and context menu
 // Must be loaded after state.js, utils.js, db.js, calendar.js
 
+// ========== MODAL MANAGER (Fallback if not defined in utils.js) ==========
+if (typeof ModalManager === 'undefined') {
+    window.ModalManager = {
+        current: null,
+        _focusReturn: null,
+        open(modalId) {
+            const modal = document.getElementById(modalId);
+            if (!modal) return;
+            if (this.current && this.current !== modalId) this.close(this.current);
+            modal.classList.remove('hidden');
+            modal.scrollTop = 0;
+            this.current = modalId;
+            this.trapFocus(modal);
+        },
+        close(modalId) {
+            const modal = document.getElementById(modalId || this.current);
+            if (modal) {
+                modal.classList.add('hidden');
+                if (this._focusReturn) {
+                    this._focusReturn.focus();
+                    this._focusReturn = null;
+                }
+                if (!modalId || modalId === this.current) this.current = null;
+            }
+        },
+        closeAll() {
+            document.querySelectorAll('.modal-backdrop:not(.hidden)').forEach(m => {
+                m.classList.add('hidden');
+            });
+            this.current = null;
+        },
+        trapFocus(modal) {
+            const focusable = modal.querySelectorAll(
+                'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+            );
+            if (!focusable.length) return;
+            this._focusReturn = document.activeElement;
+            focusable[0].focus();
+            const first = focusable[0];
+            const last = focusable[focusable.length - 1];
+            modal._trapHandler = (e) => {
+                if (e.key !== 'Tab') return;
+                if (e.shiftKey) {
+                    if (document.activeElement === first) { e.preventDefault(); last.focus(); }
+                } else {
+                    if (document.activeElement === last) { e.preventDefault(); first.focus(); }
+                }
+            };
+            modal.addEventListener('keydown', modal._trapHandler);
+        }
+    };
+}
+
 // ========== FORM DRAFT CLASS ==========
 class FormDraft {
     constructor(modalId, key, customHandlers = {}) {
@@ -350,7 +403,7 @@ function openBusyModal(busy = null, dateStr = null) {
     document.getElementById('busyRecurrence')?.dispatchEvent(new Event('change'));
 }
 
-// ========== CONTEXT MENU (with boundary) ==========
+// ========== CONTEXT MENU (with boundary detection) ==========
 function showContextMenu(x, y, eventId, dateStr) {
     const menu = document.getElementById('contextMenu');
     if (!menu) return;
@@ -362,25 +415,35 @@ function showContextMenu(x, y, eventId, dateStr) {
     document.getElementById('ctxEdit').innerHTML = `<i class="fas fa-edit"></i> Edit`;
     document.getElementById('ctxNoGo').innerHTML = isNogo ? `<i class="fas fa-check-circle"></i> Unskip` : `<i class="fas fa-ban"></i> Skip (No Go)`;
     document.getElementById('ctxLock').innerHTML = isLocked ? `<i class="fas fa-unlock"></i> Unlock` : `<i class="fas fa-lock"></i> Don't move`;
-    
-    // Adjust position to stay within viewport
-    const rect = menu.getBoundingClientRect();
+
+    // Show the menu first so we can get its actual dimensions
+    menu.classList.remove('hidden');
+    const menuRect = menu.getBoundingClientRect();
     let left = x;
     let top = y;
     const viewportWidth = window.innerWidth;
     const viewportHeight = window.innerHeight;
-    if (left + rect.width > viewportWidth) left = viewportWidth - rect.width - 10;
-    if (top + rect.height > viewportHeight) top = viewportHeight - rect.height - 10;
+
+    // Adjust horizontally
+    if (left + menuRect.width > viewportWidth) {
+        left = viewportWidth - menuRect.width - 10;
+    }
     if (left < 10) left = 10;
+
+    // Adjust vertically
+    if (top + menuRect.height > viewportHeight) {
+        top = viewportHeight - menuRect.height - 10;
+    }
     if (top < 10) top = 10;
-    
+
     menu.style.left = left + 'px';
     menu.style.top = top + 'px';
-    menu.classList.remove('hidden');
+
     const close = () => {
         menu.classList.add('hidden');
         document.removeEventListener('click', close);
     };
+
     document.getElementById('ctxEdit').onclick = () => {
         const ev = events.find(e => e.id === eventId);
         if (ev) openEventModal(ev, dateStr);
