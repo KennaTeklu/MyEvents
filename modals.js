@@ -327,6 +327,51 @@ function closeEventModalWithCheck() {
     }
 }
 
+// ========== EVENT FORM VALIDATION ==========
+function validateEventForm() {
+    // Clear previous errors
+    document.querySelectorAll('.field-error').forEach(el => el.classList.remove('field-error'));
+    document.querySelectorAll('.field-error-msg').forEach(el => el.remove());
+
+    let isValid = true;
+
+    // 1. Name required
+    const nameInput = document.getElementById('eventName');
+    if (!nameInput.value.trim()) {
+        showFieldError(nameInput, 'Event name is required');
+        isValid = false;
+    }
+
+    // 2. Time logic: close time must be after open time
+    const openTime = document.getElementById('eventOpenTime').value;
+    const closeTime = document.getElementById('eventCloseTime').value;
+    if (openTime && closeTime) {
+        const openMin = toMinutes(openTime);
+        const closeMin = toMinutes(closeTime);
+        if (closeMin <= openMin) {
+            showFieldError(document.getElementById('eventCloseTime'), 'Close time must be after open time');
+            isValid = false;
+        }
+
+        // 3. Min stay must fit within open-close window
+        const minStay = parseInt(document.getElementById('eventMinStay').value);
+        if (!isNaN(minStay) && minStay > (closeMin - openMin)) {
+            showFieldError(document.getElementById('eventMinStay'), `Minimum stay (${minStay} min) exceeds event window (${closeMin - openMin} min)`);
+            isValid = false;
+        }
+    }
+
+    return isValid;
+}
+
+function showFieldError(inputEl, message) {
+    inputEl.classList.add('field-error');
+    const msgSpan = document.createElement('span');
+    msgSpan.className = 'field-error-msg';
+    msgSpan.innerText = message;
+    inputEl.parentNode.insertBefore(msgSpan, inputEl.nextSibling);
+}
+
 // ========== BUSY MODAL ==========
 function openBusyModal(busy = null, dateStr = null) {
     const modal = document.getElementById('busyModal');
@@ -403,74 +448,171 @@ function openBusyModal(busy = null, dateStr = null) {
     document.getElementById('busyRecurrence')?.dispatchEvent(new Event('change'));
 }
 
-// ========== CONTEXT MENU (with boundary detection) ==========
-function showContextMenu(x, y, eventId, dateStr) {
-    const menu = document.getElementById('contextMenu');
-    if (!menu) return;
+// ========== BOTTOM SHEET CONTEXT MENU ==========
+let currentBottomSheetEventId = null;
+let currentBottomSheetDateStr = null;
+
+function showBottomSheet(eventId, dateStr) {
+    currentBottomSheetEventId = eventId;
+    currentBottomSheetDateStr = dateStr;
+
     const ev = events.find(e => e.id === eventId);
     if (!ev) return;
+
+    const sheet = document.getElementById('bottomSheet');
+    if (!sheet) {
+        console.warn('Bottom sheet element not found in DOM');
+        return;
+    }
+
     const key = `${eventId}_${dateStr}`;
     const isNogo = overrides.has(key) && overrides.get(key).type === 'nogo';
     const isLocked = overrides.has(key) && overrides.get(key).type === 'locked';
-    document.getElementById('ctxEdit').innerHTML = `<i class="fas fa-edit"></i> Edit`;
-    document.getElementById('ctxNoGo').innerHTML = isNogo ? `<i class="fas fa-check-circle"></i> Unskip` : `<i class="fas fa-ban"></i> Skip (No Go)`;
-    document.getElementById('ctxLock').innerHTML = isLocked ? `<i class="fas fa-unlock"></i> Unlock` : `<i class="fas fa-lock"></i> Don't move`;
+    const isAttended = attendanceLog.some(log => log.eventId === eventId && log.dateStr === dateStr);
 
-    // Show the menu first so we can get its actual dimensions
-    menu.classList.remove('hidden');
-    const menuRect = menu.getBoundingClientRect();
-    let left = x;
-    let top = y;
-    const viewportWidth = window.innerWidth;
-    const viewportHeight = window.innerHeight;
+    // Update sheet content
+    const title = sheet.querySelector('.sheet-title');
+    if (title) title.textContent = ev.name;
+    const desc = sheet.querySelector('.sheet-desc');
+    if (desc) desc.textContent = `${formatDateDisplay(dateStr)} • ${formatTime(toMinutes(ev.startTime))} – ${formatTime(toMinutes(ev.endTime))}`;
 
-    // Adjust horizontally
-    if (left + menuRect.width > viewportWidth) {
-        left = viewportWidth - menuRect.width - 10;
+    const editBtn = sheet.querySelector('#sheetEdit');
+    const skipBtn = sheet.querySelector('#sheetSkip');
+    const attendedBtn = sheet.querySelector('#sheetAttended');
+    const lockBtn = sheet.querySelector('#sheetLock');
+    const deleteBtn = sheet.querySelector('#sheetDelete');
+
+    if (editBtn) editBtn.onclick = () => { closeBottomSheet(); openEventModal(ev, dateStr); };
+    if (skipBtn) {
+        skipBtn.innerHTML = isNogo ? '<i class="fas fa-check-circle"></i> Unskip' : '<i class="fas fa-ban"></i> Skip (No Go)';
+        skipBtn.onclick = async () => {
+            const key = `${eventId}_${dateStr}`;
+            if (isNogo) overrides.delete(key);
+            else overrides.set(key, { compositeKey: key, eventId, dateStr, type: 'nogo' });
+            await putRecord('overrides', { compositeKey: key, eventId, dateStr, type: 'nogo' });
+            await fullRefresh();
+            closeBottomSheet();
+            showUndoToast('Skip', { eventId, dateStr, type: 'nogo' });
+        };
     }
-    if (left < 10) left = 10;
-
-    // Adjust vertically
-    if (top + menuRect.height > viewportHeight) {
-        top = viewportHeight - menuRect.height - 10;
+    if (attendedBtn) {
+        attendedBtn.innerHTML = isAttended ? '<i class="fas fa-check-double"></i> Attended' : '<i class="fas fa-check"></i> Mark Attended';
+        attendedBtn.onclick = async () => {
+            if (!isAttended) {
+                await addRecord('attendanceLog', { eventId, dateStr, timestamp: new Date() });
+                showToast('Marked as attended', 'success');
+            } else {
+                // Optionally remove attendance? We'll keep it simple.
+                showToast('Already marked as attended', 'info');
+            }
+            closeBottomSheet();
+            await fullRefresh();
+        };
     }
-    if (top < 10) top = 10;
-
-    menu.style.left = left + 'px';
-    menu.style.top = top + 'px';
-
-    const close = () => {
-        menu.classList.add('hidden');
-        document.removeEventListener('click', close);
-    };
-
-    document.getElementById('ctxEdit').onclick = () => {
-        const ev = events.find(e => e.id === eventId);
-        if (ev) openEventModal(ev, dateStr);
-        close();
-    };
-    document.getElementById('ctxNoGo').onclick = async () => {
-        const key = `${eventId}_${dateStr}`;
-        if (overrides.has(key)) overrides.delete(key);
-        else overrides.set(key, { compositeKey: key, eventId, dateStr, type: 'nogo' });
-        await putRecord('overrides', { compositeKey: key, eventId, dateStr, type: 'nogo' });
-        await fullRefresh();
-        close();
-    };
-    document.getElementById('ctxLock').onclick = async () => {
-        const key = `${eventId}_${dateStr}`;
-        if (overrides.has(key)) overrides.delete(key);
-        else overrides.set(key, { compositeKey: key, eventId, dateStr, type: 'locked' });
-        await putRecord('overrides', { compositeKey: key, eventId, dateStr, type: 'locked' });
-        await fullRefresh();
-        close();
-    };
-    document.getElementById('ctxDelete').onclick = async () => {
+    if (lockBtn) {
+        lockBtn.innerHTML = isLocked ? '<i class="fas fa-unlock"></i> Unlock' : '<i class="fas fa-lock"></i> Don\'t move';
+        lockBtn.onclick = async () => {
+            const key = `${eventId}_${dateStr}`;
+            if (isLocked) overrides.delete(key);
+            else overrides.set(key, { compositeKey: key, eventId, dateStr, type: 'locked' });
+            await putRecord('overrides', { compositeKey: key, eventId, dateStr, type: 'locked' });
+            await fullRefresh();
+            closeBottomSheet();
+            showUndoToast('Lock', { eventId, dateStr, type: 'locked' });
+        };
+    }
+    if (deleteBtn) deleteBtn.onclick = async () => {
         if (confirm(`Delete "${ev.name}" on ${dateStr}? This cannot be undone.`)) {
             await deleteRecord('events', eventId);
             await fullRefresh();
+            closeBottomSheet();
+            showUndoToast('Delete', { eventId, dateStr });
         }
-        close();
     };
-    setTimeout(() => document.addEventListener('click', close), 10);
+
+    sheet.classList.remove('hidden');
+    // Add backdrop click to close
+    const backdrop = sheet.querySelector('.sheet-backdrop') || sheet;
+    backdrop.onclick = (e) => {
+        if (e.target === backdrop) closeBottomSheet();
+    };
+    // Add ESC key listener
+    document.addEventListener('keydown', bottomSheetKeyHandler);
+}
+
+function closeBottomSheet() {
+    const sheet = document.getElementById('bottomSheet');
+    if (sheet) sheet.classList.add('hidden');
+    document.removeEventListener('keydown', bottomSheetKeyHandler);
+    currentBottomSheetEventId = null;
+    currentBottomSheetDateStr = null;
+}
+
+function bottomSheetKeyHandler(e) {
+    if (e.key === 'Escape') closeBottomSheet();
+}
+
+// ========== GPS DISAMBIGUATION MODAL ==========
+function showGPSModal(place, distance, lat, lon) {
+    const modal = document.getElementById('gpsDisambigModal');
+    if (!modal) return;
+
+    modal.querySelector('.place-name').textContent = place.name;
+    modal.querySelector('.distance').textContent = Math.round(distance);
+    const widenBtn = modal.querySelector('#gpsWidenRadius');
+    const createBtn = modal.querySelector('#gpsCreatePlace');
+
+    widenBtn.onclick = async () => {
+        place.radius = Math.max(place.radius, distance + 10);
+        await putRecord('places', place);
+        await loadData();
+        showToast(`Radius of ${place.name} expanded to ${Math.round(place.radius)}m`, 'success');
+        ModalManager.close('gpsDisambigModal');
+    };
+
+    createBtn.onclick = async () => {
+        const newName = prompt('Enter name for new place:', 'New Place');
+        if (newName && newName.trim()) {
+            const newPlace = { name: newName.trim(), lat, lon, radius: 30, travelToEvent: {} };
+            const id = await addRecord('places', newPlace);
+            places.push({ ...newPlace, id });
+            await loadData();
+            showToast(`Created new place: ${newName}`, 'success');
+        }
+        ModalManager.close('gpsDisambigModal');
+    };
+
+    ModalManager.open('gpsDisambigModal');
+}
+
+// ========== ORIGINAL CONTEXT MENU (replaced by bottom sheet, kept for reference) ==========
+// The old showContextMenu is replaced; we now call showBottomSheet directly from calendar.js.
+// We'll keep the function name for compatibility.
+function showContextMenu(x, y, eventId, dateStr) {
+    // Ignore x,y and show bottom sheet
+    showBottomSheet(eventId, dateStr);
+}
+
+// ========== UNDO TOAST HELPER ==========
+function showUndoToast(action, data) {
+    const toastArea = document.getElementById('toastArea');
+    if (!toastArea) return;
+    const toast = document.createElement('div');
+    toast.className = 'toast info';
+    toast.innerHTML = `
+        <span>${action} action performed</span>
+        <button class="undo-btn ml-2 underline" style="color:white;">Undo</button>
+    `;
+    toastArea.appendChild(toast);
+    const undoBtn = toast.querySelector('.undo-btn');
+    undoBtn.onclick = async () => {
+        // Undo logic: we need to know what to revert.
+        // For simplicity, we can push a generic undo onto the stack that reverts the last change.
+        // The actual implementation would need to store the previous state.
+        // This is a placeholder; you can extend it as needed.
+        await undo();
+        toast.remove();
+        showToast('Undone', 'success');
+    };
+    setTimeout(() => toast.remove(), 5000);
 }
