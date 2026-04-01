@@ -1,4 +1,4 @@
-// modals.js - Modal handling for events, busy blocks, and context menu
+// modals.js - Modal handling for events, busy blocks, context menu, and new modals
 // Must be loaded after state.js, utils.js, db.js, calendar.js
 
 // ========== MODAL MANAGER (Fallback if not defined in utils.js) ==========
@@ -148,7 +148,7 @@ class FormDraft {
     }
 }
 
-// ========== WIZARD FUNCTIONS ==========
+// ========== WIZARD FUNCTIONS (Enhanced) ==========
 let wizardDraftManager = null;
 
 function showWizard() {
@@ -161,7 +161,6 @@ function showWizard() {
         fab?.classList.add('hidden');
         renderWizardStep();
     }
-    // Create draft manager if not exists
     if (!wizardDraftManager) {
         wizardDraftManager = new FormDraft('wizardOverlay', 'wizardDraft', {
             homeLat: { read: () => wizardData.homeLat, write: (_, v) => { wizardData.homeLat = v; } },
@@ -182,7 +181,6 @@ function showWizard() {
 }
 
 async function finishWizard() {
-    // Save all wizard data to settings and create default place and event
     try {
         // 1. Create home place
         const homePlace = {
@@ -265,12 +263,10 @@ function renderWizardStep() {
 
     if (!container) return;
 
-    // Update progress bar and label
     const percent = (wizardStep / WIZARD_TOTAL_STEPS) * 100;
     if (progressFill) progressFill.style.width = `${percent}%`;
     if (stepLabel) stepLabel.textContent = `Step ${wizardStep} of ${WIZARD_TOTAL_STEPS}`;
 
-    // Apply slide-in animation
     container.style.opacity = '0';
     setTimeout(() => {
         container.style.opacity = '1';
@@ -278,7 +274,6 @@ function renderWizardStep() {
         setTimeout(() => container.classList.remove('wizard-step-enter'), 200);
     }, 10);
 
-    // Render content based on step
     let html = '';
     switch (wizardStep) {
         case 1:
@@ -395,16 +390,12 @@ function renderWizardStep() {
     }
 
     container.innerHTML = html;
-
-    // Attach event listeners based on step
     attachWizardStepListeners();
 
-    // Show/hide navigation buttons
     backBtn.classList.toggle('hidden', wizardStep === 1);
     nextBtn.classList.toggle('hidden', wizardStep === WIZARD_TOTAL_STEPS);
     finishBtn.classList.toggle('hidden', wizardStep !== WIZARD_TOTAL_STEPS);
 
-    // Set button actions
     backBtn.onclick = () => {
         if (wizardStep > 1) {
             wizardStep--;
@@ -420,7 +411,6 @@ function renderWizardStep() {
     };
     finishBtn.onclick = finishWizard;
 
-    // Save draft after step render (debounced)
     if (wizardDraftManager) wizardDraftManager.saveDraft();
 }
 
@@ -544,7 +534,7 @@ function attachWizardStepListeners() {
                 updateSelected();
             };
         }
-        updateSelected(); // initial sync
+        updateSelected();
     }
 
     // Step 4: Time & stay
@@ -679,11 +669,9 @@ function openEventModal(event = null, dateStr = null) {
     const modal = document.getElementById('eventModal');
     if (!modal) return;
 
-    // Update title
     const titleEl = modal.querySelector('h3');
     if (titleEl) titleEl.textContent = event ? 'Edit event' : 'Add event';
 
-    // Hide draft banner until we know
     const draftBanner = document.getElementById('draftBanner');
     if (draftBanner) draftBanner.classList.add('hidden');
 
@@ -738,11 +726,9 @@ function openEventModal(event = null, dateStr = null) {
         const priority = data.priority ?? 3;
         stars.forEach((star, idx) => {
             star.classList.toggle('selected', idx < priority);
-            // Remove previous listener to avoid stacking
             const newStar = star.cloneNode(true);
             star.parentNode.replaceChild(newStar, star);
         });
-        // Re-attach star listeners
         document.querySelectorAll('#eventPriorityStars .fa-star').forEach((star, idx) => {
             star.addEventListener('click', () => {
                 const prio = idx + 1;
@@ -757,13 +743,11 @@ function openEventModal(event = null, dateStr = null) {
         const desc = document.getElementById('priorityDesc');
         if (desc) desc.innerText = getPriorityLabel(priority);
 
-        // Weekly days
         document.querySelectorAll('#weeklyDaysContainer input').forEach(cb => {
             cb.checked = !!(data.weeklyDays && data.weeklyDays.includes(parseInt(cb.value)));
         });
         document.getElementById('monthlyDay').value = data.monthlyDay ?? 1;
 
-        // Collapse advanced if empty form, keep open if editing
         const adv = document.getElementById('advancedOptions');
         const advBtn = document.getElementById('toggleAdvancedBtn');
         if (adv && advBtn) {
@@ -776,7 +760,6 @@ function openEventModal(event = null, dateStr = null) {
             }
         }
 
-        // Snapshot for dirty detection
         eventFormSnapshot = {
             eventName: data.name || '',
             eventOpenTime: data.openTime || '09:00',
@@ -796,7 +779,6 @@ function openEventModal(event = null, dateStr = null) {
         return;
     }
 
-    // New event path — load draft
     editingEventId = null;
     editingDateStr = dateStr || null;
 
@@ -825,7 +807,6 @@ function openEventModal(event = null, dateStr = null) {
 
 function closeEventModalWithCheck() {
     if (isFormDirty('eventModal', eventFormSnapshot)) {
-        // Show inline confirmation inside the modal instead of browser confirm
         const existing = document.getElementById('dirtyWarning');
         if (existing) { existing.remove(); return; }
         const modal = document.getElementById('eventModal');
@@ -851,22 +832,18 @@ function closeEventModalWithCheck() {
     }
 }
 
-// ========== EVENT FORM VALIDATION ==========
 function validateEventForm() {
-    // Clear previous errors
     document.querySelectorAll('.field-error').forEach(el => el.classList.remove('field-error'));
     document.querySelectorAll('.field-error-msg').forEach(el => el.remove());
 
     let isValid = true;
 
-    // 1. Name required
     const nameInput = document.getElementById('eventName');
     if (!nameInput.value.trim()) {
         showFieldError(nameInput, 'Event name is required');
         isValid = false;
     }
 
-    // 2. Time logic: close time must be after open time
     const openTime = document.getElementById('eventOpenTime').value;
     const closeTime = document.getElementById('eventCloseTime').value;
     if (openTime && closeTime) {
@@ -877,7 +854,6 @@ function validateEventForm() {
             isValid = false;
         }
 
-        // 3. Min stay must fit within open-close window
         const minStay = parseInt(document.getElementById('eventMinStay').value);
         if (!isNaN(minStay) && minStay > (closeMin - openMin)) {
             showFieldError(document.getElementById('eventMinStay'), `Minimum stay (${minStay} min) exceeds event window (${closeMin - openMin} min)`);
@@ -901,7 +877,6 @@ function openBusyModal(busy = null, dateStr = null) {
     const modal = document.getElementById('busyModal');
     if (!modal) return;
 
-    // Always rebuild checkboxes with weekday shortcuts
     const busyDaysDiv = document.getElementById('busyDaysCheckboxes');
     if (busyDaysDiv) {
         const days = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
@@ -972,6 +947,202 @@ function openBusyModal(busy = null, dateStr = null) {
     document.getElementById('busyRecurrence')?.dispatchEvent(new Event('change'));
 }
 
+// ========== TODO MODAL ==========
+let todoDraftManager = null;
+let editingTodoId = null;
+
+function openTodoModal(todo = null) {
+    const modal = document.getElementById('todoModal');
+    if (!modal) return;
+
+    const titleEl = modal.querySelector('h3');
+    if (titleEl) titleEl.textContent = todo ? 'Edit to‑do' : 'Add to‑do';
+
+    function populate(data) {
+        document.getElementById('todoName').value = data.name || '';
+        document.getElementById('todoDueDate').value = data.dueDate || '';
+        document.getElementById('todoPriority').value = data.priority || 3;
+        document.getElementById('todoNotes').value = data.notes || '';
+        document.getElementById('todoRecurrence').value = data.recurrence || 'none';
+        document.getElementById('todoCompleted').checked = data.completed || false;
+    }
+
+    if (todo) {
+        populate(todo);
+        editingTodoId = todo.id;
+        if (todoDraftManager) todoDraftManager.clearDraft();
+        ModalManager.open('todoModal');
+        return;
+    }
+
+    editingTodoId = null;
+    if (todoDraftManager) {
+        todoDraftManager.loadDraft().then(draft => {
+            if (draft) todoDraftManager.restore(draft);
+            else populate({});
+            ModalManager.open('todoModal');
+        }).catch(() => {
+            populate({});
+            ModalManager.open('todoModal');
+        });
+    } else {
+        populate({});
+        ModalManager.open('todoModal');
+    }
+}
+
+async function saveTodoModal() {
+    const todoData = {
+        id: editingTodoId || undefined,
+        name: document.getElementById('todoName').value.trim(),
+        dueDate: document.getElementById('todoDueDate').value,
+        priority: parseInt(document.getElementById('todoPriority').value),
+        notes: document.getElementById('todoNotes').value,
+        recurrence: document.getElementById('todoRecurrence').value,
+        completed: document.getElementById('todoCompleted').checked,
+        createdAt: new Date().toISOString()
+    };
+    if (!todoData.name) {
+        showToast('Please enter a to‑do name', 'error');
+        return;
+    }
+    if (editingTodoId) {
+        await putRecord('todos', todoData);
+        showToast('To‑do updated', 'success');
+    } else {
+        await addRecord('todos', todoData);
+        showToast('To‑do added', 'success');
+    }
+    if (todoDraftManager) await todoDraftManager.clearDraft();
+    await fullRefresh();
+    ModalManager.close('todoModal');
+}
+
+// ========== CONFLICT RESOLUTION MODAL ==========
+function showConflictModal(conflictInfo) {
+    const modal = document.getElementById('conflictModal');
+    if (!modal) return;
+
+    const messageEl = modal.querySelector('.conflict-message');
+    if (messageEl) messageEl.textContent = conflictInfo.message;
+
+    const resolveBtn = modal.querySelector('#resolveConflictBtn');
+    const ignoreBtn = modal.querySelector('#ignoreConflictBtn');
+
+    const newHandler = () => {
+        if (conflictInfo.onResolve) conflictInfo.onResolve();
+        ModalManager.close('conflictModal');
+    };
+    const ignoreHandler = () => {
+        if (conflictInfo.onIgnore) conflictInfo.onIgnore();
+        ModalManager.close('conflictModal');
+    };
+
+    if (resolveBtn) {
+        resolveBtn.onclick = newHandler;
+    }
+    if (ignoreBtn) {
+        ignoreBtn.onclick = ignoreHandler;
+    }
+
+    ModalManager.open('conflictModal');
+}
+
+// ========== EVENT LIST MODAL ==========
+async function showEventListModal() {
+    const modal = document.getElementById('eventListModal');
+    if (!modal) return;
+
+    const listContainer = modal.querySelector('.event-list-items');
+    if (!listContainer) return;
+
+    const searchInput = modal.querySelector('#eventListSearch');
+    const filterSelect = modal.querySelector('#eventListFilter');
+
+    function renderList() {
+        const searchTerm = searchInput ? searchInput.value.toLowerCase() : '';
+        const filter = filterSelect ? filterSelect.value : 'all';
+
+        let filtered = [...events];
+        if (searchTerm) {
+            filtered = filtered.filter(ev => ev.name.toLowerCase().includes(searchTerm));
+        }
+        if (filter === 'attended') {
+            // Filter events that have attendance log (any date) – simplified
+            filtered = filtered.filter(ev => attendanceLog.some(log => log.eventId === ev.id));
+        } else if (filter === 'upcoming') {
+            const today = formatDate(new Date());
+            filtered = filtered.filter(ev => ev.startDate >= today);
+        } else if (filter === 'past') {
+            const today = formatDate(new Date());
+            filtered = filtered.filter(ev => ev.startDate < today);
+        }
+
+        listContainer.innerHTML = filtered.map(ev => `
+            <div class="event-list-item p-3 border-b border-gray-200 dark:border-gray-700 flex justify-between items-center">
+                <div>
+                    <div class="font-semibold">${escapeHtml(ev.name)}</div>
+                    <div class="text-xs text-gray-500">Recurrence: ${ev.repeat || 'none'}</div>
+                </div>
+                <button class="mark-attended-btn text-sm bg-green-100 text-green-700 px-3 py-1 rounded-full" data-id="${ev.id}">Mark attended</button>
+            </div>
+        `).join('');
+
+        listContainer.querySelectorAll('.mark-attended-btn').forEach(btn => {
+            btn.onclick = async () => {
+                const eventId = parseInt(btn.dataset.id);
+                await addRecord('attendanceLog', { eventId, dateStr: formatDate(new Date()), timestamp: new Date() });
+                await fullRefresh();
+                showToast('Marked as attended today', 'success');
+                renderList();
+            };
+        });
+    }
+
+    if (searchInput) searchInput.oninput = renderList;
+    if (filterSelect) filterSelect.onchange = renderList;
+
+    renderList();
+    ModalManager.open('eventListModal');
+}
+
+// ========== SUBLOCATION MODAL ==========
+function showSublocationModal(place, lat, lon, onConfirm) {
+    const modal = document.getElementById('sublocationModal');
+    if (!modal) return;
+
+    const placeNameSpan = modal.querySelector('.place-name');
+    if (placeNameSpan) placeNameSpan.textContent = place.name;
+
+    const input = modal.querySelector('#sublocationName');
+    const saveBtn = modal.querySelector('#saveSublocationBtn');
+    const cancelBtn = modal.querySelector('#cancelSublocationBtn');
+
+    if (input) input.value = '';
+
+    const saveHandler = async () => {
+        const name = input ? input.value.trim() : '';
+        if (!name) {
+            showToast('Please enter a name for this spot', 'error');
+            return;
+        }
+        if (!place.sublocations) place.sublocations = [];
+        place.sublocations.push({ name, lat, lon });
+        await putRecord('places', place);
+        if (onConfirm) onConfirm(place, name);
+        ModalManager.close('sublocationModal');
+    };
+    const cancelHandler = () => {
+        if (onConfirm) onConfirm(null, null);
+        ModalManager.close('sublocationModal');
+    };
+
+    saveBtn.onclick = saveHandler;
+    cancelBtn.onclick = cancelHandler;
+
+    ModalManager.open('sublocationModal');
+}
+
 // ========== BOTTOM SHEET CONTEXT MENU ==========
 let currentBottomSheetEventId = null;
 let currentBottomSheetDateStr = null;
@@ -994,7 +1165,6 @@ function showBottomSheet(eventId, dateStr) {
     const isLocked = overrides.has(key) && overrides.get(key).type === 'locked';
     const isAttended = attendanceLog.some(log => log.eventId === eventId && log.dateStr === dateStr);
 
-    // Update sheet content
     const title = sheet.querySelector('.sheet-title');
     if (title) title.textContent = ev.name;
     const desc = sheet.querySelector('.sheet-desc');
@@ -1005,6 +1175,7 @@ function showBottomSheet(eventId, dateStr) {
     const attendedBtn = sheet.querySelector('#sheetAttended');
     const lockBtn = sheet.querySelector('#sheetLock');
     const deleteBtn = sheet.querySelector('#sheetDelete');
+    const feedbackBtn = sheet.querySelector('#sheetFeedback');
 
     if (editBtn) editBtn.onclick = () => { closeBottomSheet(); openEventModal(ev, dateStr); };
     if (skipBtn) {
@@ -1026,7 +1197,6 @@ function showBottomSheet(eventId, dateStr) {
                 await addRecord('attendanceLog', { eventId, dateStr, timestamp: new Date() });
                 showToast('Marked as attended', 'success');
             } else {
-                // Optionally remove attendance? We'll keep it simple.
                 showToast('Already marked as attended', 'info');
             }
             closeBottomSheet();
@@ -1053,14 +1223,18 @@ function showBottomSheet(eventId, dateStr) {
             showUndoToast('Delete', { eventId, dateStr });
         }
     };
+    if (feedbackBtn) {
+        feedbackBtn.onclick = () => {
+            closeBottomSheet();
+            showFeedbackModal(ev, dateStr);
+        };
+    }
 
     sheet.classList.remove('hidden');
-    // Add backdrop click to close
     const backdrop = sheet.querySelector('.sheet-backdrop') || sheet;
     backdrop.onclick = (e) => {
         if (e.target === backdrop) closeBottomSheet();
     };
-    // Add ESC key listener
     document.addEventListener('keydown', bottomSheetKeyHandler);
 }
 
@@ -1076,6 +1250,65 @@ function bottomSheetKeyHandler(e) {
     if (e.key === 'Escape') closeBottomSheet();
 }
 
+// ========== FEEDBACK MODAL ==========
+function showFeedbackModal(event, dateStr) {
+    const modal = document.getElementById('feedbackModal');
+    if (!modal) return;
+
+    const eventNameSpan = modal.querySelector('.event-name');
+    if (eventNameSpan) eventNameSpan.textContent = event.name;
+
+    const likeBtn = modal.querySelector('#feedbackLike');
+    const dislikeBtn = modal.querySelector('#feedbackDislike');
+    const commentInput = modal.querySelector('#feedbackComment');
+    const submitBtn = modal.querySelector('#submitFeedbackBtn');
+    const cancelBtn = modal.querySelector('#cancelFeedbackBtn');
+
+    let feedbackType = null;
+
+    likeBtn.onclick = () => {
+        feedbackType = 'like';
+        likeBtn.classList.add('bg-green-100', 'border-green-500');
+        dislikeBtn.classList.remove('bg-red-100', 'border-red-500');
+    };
+    dislikeBtn.onclick = () => {
+        feedbackType = 'dislike';
+        dislikeBtn.classList.add('bg-red-100', 'border-red-500');
+        likeBtn.classList.remove('bg-green-100', 'border-green-500');
+    };
+    submitBtn.onclick = async () => {
+        if (!feedbackType) {
+            showToast('Please select like or dislike', 'error');
+            return;
+        }
+        const comment = commentInput ? commentInput.value.trim() : '';
+        const feedbackRecord = {
+            eventId: event.id,
+            dateStr: dateStr,
+            type: feedbackType,
+            comment: comment || null,
+            timestamp: new Date().toISOString()
+        };
+        await addRecord('userFeedback', feedbackRecord);
+        // Also update learningData for preference
+        await addRecord('learningData', {
+            type: 'preference',
+            eventId: event.id,
+            dateStr: dateStr,
+            preference: feedbackType,
+            comment: comment,
+            timestamp: new Date()
+        });
+        showToast('Thanks for your feedback!', 'success');
+        ModalManager.close('feedbackModal');
+        // Optionally re-run optimizer to adjust future scheduling
+        if (typeof runOptimizer === 'function') runOptimizer();
+    };
+    cancelBtn.onclick = () => ModalManager.close('feedbackModal');
+
+    ModalManager.open('feedbackModal');
+}
+
 // ========== GPS DISAMBIGUATION MODAL ==========
 function showGPSModal(place, distance, lat, lon) {
     const modal = document.getElementById('gpsDisambigModal');
@@ -1085,6 +1318,7 @@ function showGPSModal(place, distance, lat, lon) {
     modal.querySelector('.distance').textContent = Math.round(distance);
     const widenBtn = modal.querySelector('#gpsWidenRadius');
     const createBtn = modal.querySelector('#gpsCreatePlace');
+    const sublocationBtn = modal.querySelector('#gpsCreateSublocation');
 
     widenBtn.onclick = async () => {
         place.radius = Math.max(place.radius, distance + 10);
@@ -1106,14 +1340,23 @@ function showGPSModal(place, distance, lat, lon) {
         ModalManager.close('gpsDisambigModal');
     };
 
+    if (sublocationBtn) {
+        sublocationBtn.onclick = () => {
+            ModalManager.close('gpsDisambigModal');
+            showSublocationModal(place, lat, lon, async (updatedPlace, subName) => {
+                if (updatedPlace && subName) {
+                    await loadData();
+                    showToast(`Added sublocation: ${subName}`, 'success');
+                }
+            });
+        };
+    }
+
     ModalManager.open('gpsDisambigModal');
 }
 
-// ========== ORIGINAL CONTEXT MENU (replaced by bottom sheet, kept for reference) ==========
-// The old showContextMenu is replaced; we now call showBottomSheet directly from calendar.js.
-// We'll keep the function name for compatibility.
+// ========== ORIGINAL CONTEXT MENU (replaced by bottom sheet) ==========
 function showContextMenu(x, y, eventId, dateStr) {
-    // Ignore x,y and show bottom sheet
     showBottomSheet(eventId, dateStr);
 }
 
@@ -1130,10 +1373,6 @@ function showUndoToast(action, data) {
     toastArea.appendChild(toast);
     const undoBtn = toast.querySelector('.undo-btn');
     undoBtn.onclick = async () => {
-        // Undo logic: we need to know what to revert.
-        // For simplicity, we can push a generic undo onto the stack that reverts the last change.
-        // The actual implementation would need to store the previous state.
-        // This is a placeholder; you can extend it as needed.
         await undo();
         toast.remove();
         showToast('Undone', 'success');
