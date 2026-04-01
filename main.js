@@ -8,8 +8,8 @@ async function fullRefresh() {
     await renderCalendar();
     updateNotifications();
     if (typeof updateLiveJSON === 'function') updateLiveJSON();
-    // Trigger optimizer if auto-optimize is on (debounced)
-    if (userSettings.autoOptimizeOnChange !== false) {
+    // Trigger optimizer only if auto-optimize is enabled and not already running
+    if (userSettings.autoOptimizeOnChange !== false && !optimizerLock) {
         debouncedOptimizerRun();
     }
 }
@@ -19,9 +19,11 @@ let optimizerDebounceTimer = null;
 function debouncedOptimizerRun() {
     if (optimizerDebounceTimer) clearTimeout(optimizerDebounceTimer);
     optimizerDebounceTimer = setTimeout(() => {
-        if (typeof runOptimizer === 'function') runOptimizer();
-        else console.warn('Optimizer not available');
-    }, 500);
+        if (typeof runOptimizer === 'function') {
+            // Only run if not already locked (avoid concurrency)
+            if (!optimizerLock) runOptimizer();
+        } else console.warn('Optimizer not available');
+    }, 3000); // 3 seconds debounce
 }
 
 async function loadData() {
@@ -241,9 +243,8 @@ async function runOptimizer() {
     } finally {
         optimizerLock = false;
         lastOptimizerRun = new Date();
-        // Refresh calendar to display the updated schedule
-        if (typeof fullRefresh === 'function') fullRefresh();
-        else if (typeof renderCalendar === 'function') renderCalendar();
+        // Just refresh the calendar without triggering another optimizer
+        if (typeof renderCalendar === 'function') renderCalendar();
     }
 }
 
