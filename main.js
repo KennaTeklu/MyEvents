@@ -16,14 +16,24 @@ async function fullRefresh() {
 
 // Debounced optimizer call
 let optimizerDebounceTimer = null;
+let lastOptimizerRunTime = 0;
+const OPTIMIZER_DEBOUNCE_MS = 2000;
+const OPTIMIZER_MIN_INTERVAL_MS = 5000; // prevent runs more often than 5 seconds
+
 function debouncedOptimizerRun() {
+    // Don't run if it's been too soon
+    const now = Date.now();
+    if (now - lastOptimizerRunTime < OPTIMIZER_MIN_INTERVAL_MS) return;
+    
     if (optimizerDebounceTimer) clearTimeout(optimizerDebounceTimer);
-    optimizerDebounceTimer = setTimeout(() => {
+    optimizerDebounceTimer = setTimeout(async () => {
         if (typeof runOptimizer === 'function') {
-            // Only run if not already locked (avoid concurrency)
-            if (!optimizerLock) runOptimizer();
-        } else console.warn('Optimizer not available');
-    }, 3000); // 3 seconds debounce
+            lastOptimizerRunTime = Date.now();
+            await runOptimizer();
+        } else {
+            console.warn('Optimizer not available');
+        }
+    }, OPTIMIZER_DEBOUNCE_MS);
 }
 
 async function loadData() {
@@ -40,12 +50,20 @@ async function loadData() {
         // New stores
         todos = await getAll('todos');
         scheduledEvents = await getAll('scheduledEvents');
+        const allLearning = await getAll('learningData');
         learningData = {
-            eventDurations: (await getAll('learningData')).filter(l => l.type === 'duration'),
-            travelTimes: (await getAll('learningData')).filter(l => l.type === 'travel'),
-            preferences: (await getAll('learningData')).filter(l => l.type === 'preference'),
+            eventDurations: allLearning.filter(l => l.type === 'duration'),
+            travelTimes: allLearning.filter(l => l.type === 'travel'),
+            preferences: allLearning.filter(l => l.type === 'preference'),
             preferredTimeSlots: {}
         };
+        // Populate preferredTimeSlots from learning data
+        const preferred = allLearning.filter(l => l.type === 'preferredTime');
+        for (const p of preferred) {
+            if (!learningData.preferredTimeSlots[p.eventId]) learningData.preferredTimeSlots[p.eventId] = {};
+            const key = `${p.hour}:${p.minute}`;
+            learningData.preferredTimeSlots[p.eventId][key] = (learningData.preferredTimeSlots[p.eventId][key] || 0) + (p.weight || 1);
+        }
         locationHistory = await getAll('locationHistory');
         userFeedback = await getAll('userFeedback');
 
