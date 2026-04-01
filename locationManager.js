@@ -69,19 +69,21 @@ const LocationManager = (function() {
          * @param {Object} placeData - { name, lat, lon, radius, travelToEvent }
          * @returns {Promise<number>} Place ID.
          */
-        async addPlace(placeData) {
-            const newPlace = {
-                name: placeData.name?.trim() || 'Unnamed Place',
-                lat: placeData.lat || null,
-                lon: placeData.lon || null,
-                radius: placeData.radius || LOCATION.DEFAULT_RADIUS,
-                travelToEvent: placeData.travelToEvent || {},
-                sublocations: placeData.sublocations || []
-            };
-            const id = await addRecord(STORES.PLACES, newPlace);
-            await refreshPlaces();
-            return id;
-        },
+async addPlace(placeData) {
+    const newPlace = {
+        name: placeData.name?.trim() || 'Unnamed Place',
+        lat: placeData.lat || null,
+        lon: placeData.lon || null,
+        radius: placeData.radius || LOCATION.DEFAULT_RADIUS,
+        travelToEvent: placeData.travelToEvent || {},
+        sublocations: placeData.sublocations || []
+    };
+    // Ensure no id property is present (prevents key path errors)
+    delete newPlace.id;
+    const id = await addRecord(STORES.PLACES, newPlace);
+    await refreshPlaces();
+    return id;
+},
         
         /**
          * Update an existing place.
