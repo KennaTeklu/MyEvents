@@ -33,12 +33,21 @@
         </div>
     </div>
 
-    <!-- First‑run wizard -->
+    <!-- First‑run wizard (enhanced with progress bar, step label, skip button) -->
     <div id="wizardOverlay" class="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 hidden">
-        <div class="bg-white rounded-2xl w-full max-w-md p-6 shadow-xl">
-            <div class="flex justify-between items-center mb-4">
+        <div class="bg-white dark:bg-gray-800 rounded-2xl w-full max-w-md p-6 shadow-xl transition-all">
+            <div class="flex justify-between items-center mb-2">
                 <h2 class="text-xl font-bold">Welcome</h2>
-                <button id="wizardExitBtn" class="text-gray-400 hover:text-gray-600 text-2xl">&times;</button>
+                <div class="flex gap-2">
+                    <button id="wizardSkipBtn" class="text-gray-400 hover:text-gray-600 text-sm underline">Skip to app</button>
+                    <button id="wizardExitBtn" class="text-gray-400 hover:text-gray-600 text-2xl">&times;</button>
+                </div>
+            </div>
+            <div class="mb-4">
+                <div class="wizard-progress bg-gray-200 rounded-full h-1.5">
+                    <div id="wizardProgressFill" class="bg-blue-600 h-1.5 rounded-full transition-all duration-300" style="width: 0%"></div>
+                </div>
+                <div id="wizardStepLabel" class="text-xs text-gray-500 mt-1">Step 1 of 7</div>
             </div>
             <div id="wizardStepsContainer"></div>
             <div class="flex justify-between mt-6">
@@ -214,6 +223,13 @@
                 <div><label class="block font-medium">First day of the week</label><select id="firstDayOfWeek" class="w-full border rounded-xl p-2"><option value="0">Sunday</option><option value="1">Monday</option></select></div>
                 <div><label class="block font-medium">Time format</label><select id="timeFormat" class="w-full border rounded-xl p-2"><option value="12h">12‑hour (AM/PM)</option><option value="24h">24‑hour</option></select></div>
                 <div class="flex items-center gap-2"><input type="checkbox" id="darkModeToggle"><label>Use dark mode</label></div>
+                <!-- Redo Setup Button -->
+                <div class="mt-4 pt-2 border-t border-gray-200 dark:border-gray-700">
+                    <button id="redoWizardBtn" class="text-sm text-blue-600 hover:underline flex items-center gap-1">
+                        <i class="fas fa-sync-alt"></i> Redo initial setup
+                    </button>
+                    <p class="text-xs text-gray-400 mt-1">This will clear all data and restart the onboarding wizard.</p>
+                </div>
             </div>
             <div id="settings-scheduling" class="settings-panel hidden space-y-4">
                 <div><label class="block font-medium">Do you usually go home to rest between events?</label><select id="restPolicySelect" class="w-full border rounded-xl p-2"><option value="home">Yes, always go home and rest 15 minutes</option><option value="far">Only if the next event is far (more than ___ minutes walk)</option><option value="none">No, go directly to the next event</option></select><div id="farMinutesDiv" class="hidden mt-2"><label>Far means more than (minutes walk)</label><input type="number" id="farMinutes" value="10" class="border rounded-xl p-2 w-full"></div></div>
