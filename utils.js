@@ -405,28 +405,48 @@ function getScheduledEvent(eventId, dateStr) {
 function getDisplayEventsForDate(dateStr) {
     const masterEvents = getEventsForDate(dateStr);
     const scheduledForDate = scheduledEvents.filter(se => se.dateStr === dateStr);
-    // If there's a scheduled assignment for a master event, replace that occurrence
-    // For events that are not in master but have a scheduled assignment (e.g., one‑time optimizer picks), include them.
     const result = [];
     const processedMasterIds = new Set();
+    
     for (const master of masterEvents) {
         const scheduled = scheduledForDate.find(se => se.eventId === master.id);
         if (scheduled) {
-            // Use scheduled version (override time, duration, etc.)
-            result.push({ ...master, ...scheduled, isScheduled: true });
+            // Preserve master.id and convert numeric times to strings
+            result.push({
+                ...master,
+                ...scheduled,
+                id: master.id,                     // keep master id
+                scheduledId: scheduled.id,         // store scheduled id separately
+                startTime: fromMinutes(scheduled.startMin),
+                endTime: fromMinutes(scheduled.endMin),
+                isScheduled: true
+            });
             processedMasterIds.add(master.id);
         } else {
             result.push(master);
         }
     }
-    // Add any scheduled events that don't correspond to a master (e.g., one‑time optimizer picks)
+    
     for (const scheduled of scheduledForDate) {
         if (!processedMasterIds.has(scheduled.eventId)) {
             const master = events.find(e => e.id === scheduled.eventId);
             if (master) {
-                result.push({ ...master, ...scheduled, isScheduled: true });
+                result.push({
+                    ...master,
+                    ...scheduled,
+                    id: master.id,
+                    scheduledId: scheduled.id,
+                    startTime: fromMinutes(scheduled.startMin),
+                    endTime: fromMinutes(scheduled.endMin),
+                    isScheduled: true
+                });
             } else {
-                result.push(scheduled); // fallback
+                // No master – create a standalone scheduled event (should not happen)
+                result.push({
+                    ...scheduled,
+                    startTime: fromMinutes(scheduled.startMin),
+                    endTime: fromMinutes(scheduled.endMin)
+                });
             }
         }
     }
