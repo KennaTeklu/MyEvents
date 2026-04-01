@@ -7,6 +7,8 @@ async function fullRefresh() {
     await detectConflicts();
     await renderCalendar();
     updateNotifications();
+    // Update live JSON visualizer if present
+    if (typeof updateLiveJSON === 'function') updateLiveJSON();
 }
 
 async function loadData() {
@@ -220,23 +222,20 @@ async function handleGpsPosition(position) {
             }
         }
         if (closest && closestDist < 200) {
-            if (confirm(`You are ${Math.round(closestDist)}m from "${closest.name}". Make its radius larger?`)) {
-                closest.radius = Math.max(closest.radius, closestDist + 10);
-                await putRecord('places', closest);
-                await loadData();
-                showToast(`Radius of ${closest.name} expanded to ${Math.round(closest.radius)}m`);
-            } else {
-                const newName = prompt(`Create a new place? Enter name:`);
-                if (newName) {
-                    const newPlace = { name: newName, lat, lon, radius: 30, travelToEvent: {} };
-                    const id = await addRecord('places', newPlace);
-                    places.push({ ...newPlace, id });
-                    await loadData();
-                    showToast(`Created new place: ${newName}`);
-                }
-            }
+            // Replace confirm/prompt with GPS modal
+            showGPSModal(closest, closestDist, lat, lon);
         }
     }
+}
+
+// ========== NUKE ANIMATION ==========
+function showNukeAnimation() {
+    const mainApp = document.getElementById('mainApp');
+    if (!mainApp) return;
+    mainApp.classList.add('nuke-flash');
+    setTimeout(() => {
+        mainApp.classList.remove('nuke-flash');
+    }, 500);
 }
 
 // ========== WIZARD ==========
@@ -607,7 +606,7 @@ window.addEventListener('DOMContentLoaded', async () => {
     });
     switchTab('preferences');
 
-    // ========== SAVE EVENT ==========
+    // ========== SAVE EVENT (with validation) ==========
     const saveEventBtn = document.getElementById('saveEventBtn');
     if (saveEventBtn) {
         saveEventBtn.addEventListener('click', async () => {
@@ -615,11 +614,14 @@ window.addEventListener('DOMContentLoaded', async () => {
             saveEventBtn.disabled = true;
             if (spinner) spinner.classList.remove('hidden');
             try {
-                const eventName = document.getElementById('eventName').value.trim();
-                if (!eventName) {
-                    showToast('Event name is required', 'error');
+                // Validate form before saving
+                if (!validateEventForm()) {
+                    saveEventBtn.disabled = false;
+                    if (spinner) spinner.classList.add('hidden');
                     return;
                 }
+
+                const eventName = document.getElementById('eventName').value.trim();
                 const eventData = {
                     id: editingEventId || undefined,
                     name: eventName,
@@ -646,6 +648,7 @@ window.addEventListener('DOMContentLoaded', async () => {
                     const key = `${editingEventId}_${editingDateStr}`;
                     await putRecord('overrides', { compositeKey: key, eventId: editingEventId, dateStr: editingDateStr, type: 'exception', newEvent: eventData });
                     showToast(`Updated occurrence of ${eventData.name}`);
+                    await pushAction(`Override occurrence of ${eventData.name}`, async () => {}, async () => {});
                 } else if (editingEventId) {
                     await putRecord('events', eventData);
                     await pushAction(`Edit event ${eventData.name}`, async () => {}, async () => {});
@@ -776,7 +779,7 @@ window.addEventListener('DOMContentLoaded', async () => {
         });
     }
 
-    // ========== EXPORT/IMPORT/RESET ==========
+    // ========== EXPORT/IMPORT/RESET (with nuke animation) ==========
     document.getElementById('exportDataBtn')?.addEventListener('click', async () => {
         const data = { events, busyBlocks, places, overrides: Array.from(overrides.values()) };
         const blob = new Blob([JSON.stringify(data)], { type: 'application/json' });
@@ -799,6 +802,7 @@ window.addEventListener('DOMContentLoaded', async () => {
                 if (!data.events) throw new Error('Invalid format');
                 const summary = `File contains ${data.events.length} events, ${data.busyBlocks?.length || 0} busy blocks. Import will replace all current data. Continue?`;
                 if (confirm(summary)) {
+                    showNukeAnimation(); // Visual feedback before reset
                     for (let s of ['events', 'busyBlocks', 'places', 'overrides']) {
                         const store = await getStore(s, 'readwrite');
                         await clearStore(s);
@@ -819,6 +823,7 @@ window.addEventListener('DOMContentLoaded', async () => {
     document.getElementById('resetAllDataBtn')?.addEventListener('click', async () => {
         const choice = confirm('Delete ALL data? This cannot be undone. Click OK to reset, Cancel to export first.');
         if (choice) {
+            showNukeAnimation(); // Visual flash before clearing
             const stores = ['events', 'busyBlocks', 'places', 'overrides', 'settings', 'attendanceLog', 'drafts'];
             for (let s of stores) { try { await clearStore(s); } catch(e) {} }
             localStorage.clear();
