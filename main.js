@@ -218,27 +218,37 @@ function getTravelTime(eventId, fromPlaceId = currentPlaceId) {
     return custom ?? 15;
 }
 
-// ========== OPTIMIZER (calls scheduler module) ==========
+// ========== OPTIMIZER (Constraint Solver) ==========
 async function runOptimizer() {
-    if (optimizerLock) return;
+    // Prevent concurrent runs
+    if (optimizerLock) {
+        console.log('Optimizer already running, skipping...');
+        return;
+    }
     optimizerLock = true;
-    showToast('Optimizing your schedule...', 'info');
+    
     try {
-        // If we have a scheduler module, call it
-        if (typeof scheduleEvents === 'function') {
-            await scheduleEvents();
+        // Use the scheduler module if available
+        if (typeof Scheduler !== 'undefined' && Scheduler.run) {
+            showToast('Optimizing your schedule...', 'info');
+            const result = await Scheduler.run();
+            if (result && result.length > 0) {
+                showToast(`Schedule updated: ${result.length} events placed.`, 'success');
+            } else {
+                showToast('No changes made to schedule.', 'info');
+            }
         } else {
-            // Fallback: just show message and re-render
-            console.warn('Optimizer not fully implemented yet');
-            showToast('Optimizer will be available soon!', 'info');
+            console.warn('Scheduler module not loaded');
+            showToast('Optimizer not available. Please refresh the page.', 'error');
         }
     } catch (err) {
-        console.error('Optimizer error:', err);
-        showToast('Optimization failed', 'error');
+        console.error('Optimizer failed:', err);
+        showToast('Optimization failed: ' + err.message, 'error');
     } finally {
         optimizerLock = false;
         lastOptimizerRun = new Date();
-        await fullRefresh(); // ensure schedule is displayed
+        // Refresh calendar to show new schedule
+        if (typeof renderCalendar === 'function') renderCalendar();
     }
 }
 
