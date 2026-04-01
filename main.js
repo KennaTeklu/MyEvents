@@ -230,13 +230,7 @@ async function runOptimizer() {
     try {
         // Use the scheduler module if available
         if (typeof Scheduler !== 'undefined' && Scheduler.run) {
-            showToast('Optimizing your schedule...', 'info');
-            const result = await Scheduler.run();
-            if (result && result.length > 0) {
-                showToast(`Schedule updated: ${result.length} events placed.`, 'success');
-            } else {
-                showToast('No changes made to schedule.', 'info');
-            }
+            await Scheduler.run();   // Scheduler.run() already shows its own success toast
         } else {
             console.warn('Scheduler module not loaded');
             showToast('Optimizer not available. Please refresh the page.', 'error');
@@ -247,8 +241,9 @@ async function runOptimizer() {
     } finally {
         optimizerLock = false;
         lastOptimizerRun = new Date();
-        // Refresh calendar to show new schedule
-        if (typeof renderCalendar === 'function') renderCalendar();
+        // Refresh calendar to display the updated schedule
+        if (typeof fullRefresh === 'function') fullRefresh();
+        else if (typeof renderCalendar === 'function') renderCalendar();
     }
 }
 
