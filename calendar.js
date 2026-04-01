@@ -28,29 +28,7 @@ async function renderCalendar() {
 }
 
 // ========== HELPER: GET DISPLAY EVENTS (master + scheduled) ==========
-function getDisplayEventsForDate(dateStr) {
-    const masterEvents = getEventsForDate(dateStr); // from utils.js
-    const scheduledForDate = scheduledEvents.filter(se => se.dateStr === dateStr);
-    const result = [];
-    const processedMasterIds = new Set();
-    for (const master of masterEvents) {
-        const scheduled = scheduledForDate.find(se => se.eventId === master.id);
-        if (scheduled) {
-            result.push({ ...master, ...scheduled, isScheduled: true });
-            processedMasterIds.add(master.id);
-        } else {
-            result.push(master);
-        }
-    }
-    for (const scheduled of scheduledForDate) {
-        if (!processedMasterIds.has(scheduled.eventId)) {
-            const master = events.find(e => e.id === scheduled.eventId);
-            if (master) result.push({ ...master, ...scheduled, isScheduled: true });
-            else result.push(scheduled);
-        }
-    }
-    return result;
-}
+// getDisplayEventsForDate is now defined in utils.js; use that version.
 
 // ========== HELPER: GET DISPLAY BUSY (for conflict detection) ==========
 function getDisplayBusyForDate(dateStr) {
