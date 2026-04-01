@@ -130,27 +130,32 @@ const EventManager = (function() {
          * @returns {Promise<void>}
          */
         async deleteEvent(eventId) {
-            // Remove the event itself
+            // Remove master event
             await deleteRecord(STORES.EVENTS, eventId);
-            // Remove any overrides for this event
+            
+            // Remove all overrides
             const allOverrides = await getAll(STORES.OVERRIDES);
             const toDelete = allOverrides.filter(ov => ov.eventId === eventId);
             for (const ov of toDelete) {
                 await deleteRecord(STORES.OVERRIDES, ov.compositeKey);
+                overrides.delete(ov.compositeKey);
             }
-            // Remove any scheduled events for this event
+            
+            // Remove all scheduled events for this event
             const allScheduled = await getAll(STORES.SCHEDULED_EVENTS);
             const scheduledToDelete = allScheduled.filter(se => se.eventId === eventId);
             for (const se of scheduledToDelete) {
                 await deleteRecord(STORES.SCHEDULED_EVENTS, se.id);
             }
+            
+            // Refresh global arrays
             await refreshEvents();
-            // Also remove from global overrides and scheduledEvents arrays
-            for (let [key, ov] of overrides.entries()) {
-                if (ov.eventId === eventId) overrides.delete(key);
+            // Also remove from the in-memory scheduledEvents array (all entries)
+            for (let i = scheduledEvents.length - 1; i >= 0; i--) {
+                if (scheduledEvents[i].eventId === eventId) {
+                    scheduledEvents.splice(i, 1);
+                }
             }
-            const scheduledIdx = scheduledEvents.findIndex(se => se.eventId === eventId);
-            if (scheduledIdx !== -1) scheduledEvents.splice(scheduledIdx, 1);
         },
         
         /**
