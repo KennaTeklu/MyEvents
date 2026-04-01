@@ -1,4 +1,4 @@
-// calendar.js - Calendar rendering logic (Week/Month/Conflict Engine)
+// calendar.js - Enhanced Calendar Rendering with scheduled events, todos, travel blocks, feedback
 // Must be loaded after state.js, utils.js, db.js, modals.js
 
 const PIXELS_PER_MIN = 1.5; // pixels per minute for vertical scaling
@@ -14,8 +14,10 @@ async function renderCalendar() {
     if (currentView === 'week') {
         if (isMobile) await renderMobileWeekView(container);
         else await renderWeekView(container);
-    } else {
+    } else if (currentView === 'month') {
         await renderMonthView(container);
+    } else if (currentView === 'day') {
+        await renderDayView(container);
     }
 
     attachCalendarEvents();
@@ -24,26 +26,53 @@ async function renderCalendar() {
     updateDateRangeDisplay();
 }
 
+// ========== HELPER: GET DISPLAY EVENTS (master + scheduled) ==========
+function getDisplayEventsForDate(dateStr) {
+    const masterEvents = getEventsForDate(dateStr); // from utils.js
+    const scheduledForDate = scheduledEvents.filter(se => se.dateStr === dateStr);
+    const result = [];
+    const processedMasterIds = new Set();
+    for (const master of masterEvents) {
+        const scheduled = scheduledForDate.find(se => se.eventId === master.id);
+        if (scheduled) {
+            result.push({ ...master, ...scheduled, isScheduled: true });
+            processedMasterIds.add(master.id);
+        } else {
+            result.push(master);
+        }
+    }
+    for (const scheduled of scheduledForDate) {
+        if (!processedMasterIds.has(scheduled.eventId)) {
+            const master = events.find(e => e.id === scheduled.eventId);
+            if (master) result.push({ ...master, ...scheduled, isScheduled: true });
+            else result.push(scheduled);
+        }
+    }
+    return result;
+}
+
+// ========== HELPER: GET DISPLAY BUSY (for conflict detection) ==========
+function getDisplayBusyForDate(dateStr) {
+    return getBusyBlocksForDate(dateStr);
+}
+
 // ========== WEEK VIEW (desktop) ==========
 async function renderWeekView(container) {
-    // Determine the week's start date
     const startOfWeek = new Date(currentDate);
     startOfWeek.setDate(currentDate.getDate() - ((currentDate.getDay() - firstDayOfWeek + 7) % 7));
     const days = Array.from({ length: 7 }, (_, i) => addDays(startOfWeek, i));
 
-    // ---- Dynamic time range based on events ----
     let earliestHour = 24, latestHour = 0;
     for (const day of days) {
         const dateStr = formatDate(day);
-        const dayEvents = getEventsForDate(dateStr);
+        const dayEvents = getDisplayEventsForDate(dateStr);
         for (const ev of dayEvents) {
             const startMin = toMinutes(ev.startTime);
             const endMin = toMinutes(ev.endTime);
             earliestHour = Math.min(earliestHour, Math.floor(startMin / 60));
             latestHour = Math.max(latestHour, Math.ceil(endMin / 60));
         }
-        // Also consider busy blocks for range
-        const dayBusy = getBusyBlocksForDate(dateStr);
+        const dayBusy = getDisplayBusyForDate(dateStr);
         for (const busy of dayBusy) {
             const startMin = toMinutes(busy.startTime);
             const endMin = toMinutes(busy.endTime);
@@ -58,7 +87,6 @@ async function renderWeekView(container) {
     const totalMinutes = (latestHour - earliestHour) * 60;
     const dayHeight = totalMinutes * PIXELS_PER_MIN;
 
-    // Build header row
     let html = `<div class="weekdays flex">`;
     days.forEach(d => {
         const isToday = formatDate(d) === formatDate(new Date());
@@ -67,8 +95,6 @@ async function renderWeekView(container) {
                  </div>`;
     });
     html += `</div>`;
-
-    // Build time column and day cells container
     html += `<div class="timeline-container" style="display: flex;">`;
 
     // Time labels column
@@ -78,142 +104,15 @@ async function renderWeekView(container) {
     }
     html += `</div>`;
 
-    // Days row container with flex and overflow
     html += `<div class="days-row" style="display: flex; flex: 1; overflow-x: auto;">`;
 
     for (const day of days) {
         const dayStr = formatDate(day);
-        const dayEvents = getEventsForDate(dayStr);
-        const dayBusy = getBusyBlocksForDate(dayStr);
+        const dayEvents = getDisplayEventsForDate(dayStr);
+        const dayBusy = getDisplayBusyForDate(dayStr);
         const isToday = dayStr === formatDate(new Date());
 
         html += `<div class="day-cell relative" data-date="${dayStr}" style="flex: 1; min-width: 100px; height: ${dayHeight}px; position: relative; background: ${isToday ? '#eff6ff' : 'white'}; border-right: 1px solid #e5e7eb;">`;
-
-        // Draw grid lines (optional: using background gradient)
-        // Add busy overlays
-        for (const busy of dayBusy) {
-            const startMin = toMinutes(busy.startTime);
-            const endMin = toMinutes(busy.endTime);
-            if (endMin > earliestHour * 60 && startMin < latestHour * 60) {
-                const startOffset = Math.max(startMin, earliestHour * 60);
-                const endOffset = Math.min(endMin, latestHour * 60);
-                const top = (startOffset - earliestHour * 60) * PIXELS_PER_MIN;
-                const height = (endOffset - startOffset) * PIXELS_PER_MIN;
-                html += `<div class="busy-overlay" style="position: absolute; top: ${top}px; height: ${height}px; left: 0; right: 0; background: repeating-linear-gradient(45deg, #d1d5db, #d1d5db 4px, #e5e7eb 4px, #e5e7eb 8px); opacity: 0.6; pointer-events: auto; cursor: pointer;"></div>`;
-            }
-        }
-
-        // Add events
-        for (const ev of dayEvents) {
-            const startMin = toMinutes(ev.startTime);
-            const endMin = toMinutes(ev.endTime);
-            if (endMin > earliestHour * 60 && startMin < latestHour * 60) {
-                const startOffset = Math.max(startMin, earliestHour * 60);
-                const endOffset = Math.min(endMin, latestHour * 60);
-                const top = (startOffset - earliestHour * 60) * PIXELS_PER_MIN;
-                const height = (endOffset - startOffset) * PIXELS_PER_MIN;
-
-                const isNogo = overrides.has(`${ev.id}_${dayStr}`) && overrides.get(`${ev.id}_${dayStr}`).type === 'nogo';
-                const isLocked = overrides.has(`${ev.id}_${dayStr}`) && overrides.get(`${ev.id}_${dayStr}`).type === 'locked';
-                // Check if event conflicts with any busy block (including other events)
-                const hasConflict = dayBusy.some(b => endMin > toMinutes(b.startTime) && startMin < toMinutes(b.endTime)) ||
-                                   dayEvents.some(other => other.id !== ev.id && endMin > toMinutes(other.startTime) && startMin < toMinutes(other.endTime));
-                const duration = endMin - startMin;
-                const isShort = duration < 30;
-
-                let extraClasses = '';
-                if (isNogo) extraClasses += ' nogo';
-                if (isLocked) extraClasses += ' locked';
-                if (hasConflict) extraClasses += ' conflict-pulse';
-
-                html += `<div class="event-block${extraClasses} ${isShort ? 'short-block' : ''}"
-                            data-id="${ev.id}" data-date="${dayStr}"
-                            style="position: absolute; top: ${top}px; height: ${height}px; left: 2px; right: 2px; background-color: ${ev.color || '#3b82f6'}; border-radius: 6px; padding: 2px 4px; font-size: 0.7rem; font-weight: 600; color: white; cursor: pointer; overflow: hidden; white-space: normal; z-index: 10;"
-                            role="button" tabindex="0"
-                            aria-label="${escapeHtml(ev.name)}, ${formatTime(startMin)} to ${formatTime(endMin)}">
-                            ${escapeHtml(ev.name)}
-                            <span class="event-time" style="font-size: 0.6rem; font-weight: normal; display: block;">${formatTime(startMin)}–${formatTime(endMin)}</span>
-                            ${hasConflict ? '<span class="conflict-label" style="position: absolute; top: 2px; right: 2px; background: red; color: white; border-radius: 50%; width: 16px; height: 16px; font-size: 10px; text-align: center;">⚠️</span>' : ''}
-                        </div>`;
-            }
-        }
-
-        html += `</div>`;
-    }
-
-    html += `</div>`; // close days-row
-    html += `</div>`; // close timeline-container
-
-    container.innerHTML = html;
-
-    // Show empty state if no events this week
-    const totalEventsThisWeek = days.reduce((acc, day) => acc + getEventsForDate(formatDate(day)).length, 0);
-    if (totalEventsThisWeek === 0) renderEmptyState(container);
-}
-
-// ========== MOBILE WEEK VIEW (horizontally scrollable, all 7 days) ==========
-async function renderMobileWeekView(container) {
-    // Same as desktop but with horizontal scroll and narrower cells
-    const startOfWeek = new Date(currentDate);
-    startOfWeek.setDate(currentDate.getDate() - ((currentDate.getDay() - firstDayOfWeek + 7) % 7));
-    const days = Array.from({ length: 7 }, (_, i) => addDays(startOfWeek, i));
-
-    // ---- Dynamic time range based on events ----
-    let earliestHour = 24, latestHour = 0;
-    for (const day of days) {
-        const dateStr = formatDate(day);
-        const dayEvents = getEventsForDate(dateStr);
-        for (const ev of dayEvents) {
-            const startMin = toMinutes(ev.startTime);
-            const endMin = toMinutes(ev.endTime);
-            earliestHour = Math.min(earliestHour, Math.floor(startMin / 60));
-            latestHour = Math.max(latestHour, Math.ceil(endMin / 60));
-        }
-        const dayBusy = getBusyBlocksForDate(dateStr);
-        for (const busy of dayBusy) {
-            const startMin = toMinutes(busy.startTime);
-            const endMin = toMinutes(busy.endTime);
-            earliestHour = Math.min(earliestHour, Math.floor(startMin / 60));
-            latestHour = Math.max(latestHour, Math.ceil(endMin / 60));
-        }
-    }
-    earliestHour = Math.max(6, earliestHour - 1);
-    latestHour = Math.min(22, latestHour + 1);
-    if (earliestHour >= latestHour) { earliestHour = 6; latestHour = 22; }
-
-    const totalMinutes = (latestHour - earliestHour) * 60;
-    const dayHeight = totalMinutes * PIXELS_PER_MIN;
-
-    // Build header row
-    let html = `<div class="weekdays flex overflow-x-auto">`;
-    days.forEach(d => {
-        const isToday = formatDate(d) === formatDate(new Date());
-        html += `<div class="day-header text-center font-semibold py-2 ${isToday ? 'today-header' : ''}" style="min-width: 80px; flex-shrink: 0;">
-                    ${d.toLocaleDateString(undefined, { weekday: 'short' })}<br>${d.getDate()}
-                 </div>`;
-    });
-    html += `</div>`;
-
-    // Build time column and day cells container
-    html += `<div class="timeline-container" style="display: flex;">`;
-
-    // Time labels column
-    html += `<div class="time-col" style="width: 70px; flex-shrink: 0;">`;
-    for (let minute = earliestHour * 60; minute <= latestHour * 60; minute += 30) {
-        html += `<div style="height: ${30 * PIXELS_PER_MIN}px; display: flex; align-items: center; justify-content: flex-end; padding-right: 8px; font-size: 0.7rem;">${formatTime(minute)}</div>`;
-    }
-    html += `</div>`;
-
-    // Days row container with overflow-x: auto and flex
-    html += `<div class="days-row" style="display: flex; flex: 1; overflow-x: auto;">`;
-
-    for (const day of days) {
-        const dayStr = formatDate(day);
-        const dayEvents = getEventsForDate(dayStr);
-        const dayBusy = getBusyBlocksForDate(dayStr);
-        const isToday = dayStr === formatDate(new Date());
-
-        html += `<div class="day-cell relative" data-date="${dayStr}" style="flex: 0 0 90px; min-width: 90px; height: ${dayHeight}px; position: relative; background: ${isToday ? '#eff6ff' : 'white'}; border-right: 1px solid #e5e7eb;">`;
 
         // Busy overlays
         for (const busy of dayBusy) {
@@ -224,11 +123,148 @@ async function renderMobileWeekView(container) {
                 const endOffset = Math.min(endMin, latestHour * 60);
                 const top = (startOffset - earliestHour * 60) * PIXELS_PER_MIN;
                 const height = (endOffset - startOffset) * PIXELS_PER_MIN;
-                html += `<div class="busy-overlay" style="position: absolute; top: ${top}px; height: ${height}px; left: 0; right: 0; background: repeating-linear-gradient(45deg, #d1d5db, #d1d5db 4px, #e5e7eb 4px, #e5e7eb 8px); opacity: 0.6; pointer-events: auto; cursor: pointer;"></div>`;
+                html += `<div class="busy-overlay ${busy.hard ? 'hard' : ''}" style="position: absolute; top: ${top}px; height: ${height}px; left: 0; right: 0; pointer-events: auto; cursor: pointer;"></div>`;
             }
         }
 
         // Events
+        const eventsToRender = dayEvents;
+        // Also show todos if setting enabled (as small icons)
+        if (userSettings.showTodosInCalendar) {
+            const todosDue = todos.filter(t => !t.completed && t.dueDate === dayStr);
+            // Show todo count as a badge in top right corner of day cell
+            if (todosDue.length > 0) {
+                html += `<div class="todo-badge" style="position: absolute; top: 2px; right: 2px; background: #f59e0b; color: white; border-radius: 12px; padding: 0px 6px; font-size: 10px; font-weight: bold;">📝${todosDue.length}</div>`;
+            }
+        }
+
+        for (const ev of eventsToRender) {
+            const startMin = toMinutes(ev.startTime);
+            const endMin = toMinutes(ev.endTime);
+            if (endMin > earliestHour * 60 && startMin < latestHour * 60) {
+                const startOffset = Math.max(startMin, earliestHour * 60);
+                const endOffset = Math.min(endMin, latestHour * 60);
+                const top = (startOffset - earliestHour * 60) * PIXELS_PER_MIN;
+                const height = (endOffset - startOffset) * PIXELS_PER_MIN;
+
+                const isNogo = overrides.has(`${ev.id}_${dayStr}`) && overrides.get(`${ev.id}_${dayStr}`).type === 'nogo';
+                const isLocked = overrides.has(`${ev.id}_${dayStr}`) && overrides.get(`${ev.id}_${dayStr}`).type === 'locked';
+                const hasConflict = dayBusy.some(b => endMin > toMinutes(b.startTime) && startMin < toMinutes(b.endTime)) ||
+                                   eventsToRender.some(other => other.id !== ev.id && endMin > toMinutes(other.startTime) && startMin < toMinutes(other.endTime));
+                const isScheduled = ev.isScheduled || false;
+                const duration = endMin - startMin;
+                const isShort = duration < 30;
+
+                let extraClasses = '';
+                if (isNogo) extraClasses += ' nogo';
+                if (isLocked) extraClasses += ' locked';
+                if (hasConflict) extraClasses += ' conflict-pulse';
+                if (isScheduled) extraClasses += ' scheduled';
+
+                html += `<div class="event-block${extraClasses} ${isShort ? 'short-block' : ''}"
+                            data-id="${ev.id}" data-date="${dayStr}"
+                            style="position: absolute; top: ${top}px; height: ${height}px; left: 2px; right: 2px; background-color: ${ev.color || '#3b82f6'}; border-radius: 6px; padding: 2px 4px; font-size: 0.7rem; font-weight: 600; color: white; cursor: pointer; overflow: hidden; white-space: normal; z-index: 10;"
+                            role="button" tabindex="0"
+                            aria-label="${escapeHtml(ev.name)}, ${formatTime(startMin)} to ${formatTime(endMin)}">
+                            ${escapeHtml(ev.name)}
+                            <span class="event-time" style="font-size: 0.6rem; font-weight: normal; display: block;">${formatTime(startMin)}–${formatTime(endMin)}</span>
+                            ${hasConflict ? '<span class="conflict-label" style="position: absolute; top: 2px; right: 2px; background: red; color: white; border-radius: 50%; width: 16px; height: 16px; font-size: 10px; text-align: center;">⚠️</span>' : ''}
+                            ${isScheduled ? '<span class="scheduled-label" style="position: absolute; bottom: 2px; right: 2px; font-size: 8px; background: rgba(0,0,0,0.4); padding: 0px 2px; border-radius: 3px;">⚙️</span>' : ''}
+                        </div>`;
+                // Travel block (only if event has travel time and it's the first event of the day? We'll show above event)
+                const travelMins = ev.travelMins || (ev.travelTimeFromPrev || 0);
+                if (travelMins > 0 && startOffset > earliestHour * 60) {
+                    const travelTop = top - (travelMins * PIXELS_PER_MIN);
+                    if (travelTop >= 0) {
+                        html += `<div class="travel-block" style="position: absolute; top: ${travelTop}px; height: ${travelMins * PIXELS_PER_MIN}px; left: 2px; right: 2px; background: #9ca3af; border-radius: 4px; font-size: 0.6rem; text-align: center; color: white; line-height: 1.2; z-index: 9;">🚗 ${travelMins} min</div>`;
+                    }
+                }
+            }
+        }
+
+        html += `</div>`;
+    }
+
+    html += `</div></div>`;
+    container.innerHTML = html;
+
+    const totalEventsThisWeek = days.reduce((acc, day) => acc + getDisplayEventsForDate(formatDate(day)).length, 0);
+    if (totalEventsThisWeek === 0 && (!userSettings.showTodosInCalendar || todos.filter(t => !t.completed).length === 0)) {
+        renderEmptyState(container);
+    }
+}
+
+// ========== MOBILE WEEK VIEW ==========
+async function renderMobileWeekView(container) {
+    const startOfWeek = new Date(currentDate);
+    startOfWeek.setDate(currentDate.getDate() - ((currentDate.getDay() - firstDayOfWeek + 7) % 7));
+    const days = Array.from({ length: 7 }, (_, i) => addDays(startOfWeek, i));
+
+    let earliestHour = 24, latestHour = 0;
+    for (const day of days) {
+        const dateStr = formatDate(day);
+        const dayEvents = getDisplayEventsForDate(dateStr);
+        for (const ev of dayEvents) {
+            const startMin = toMinutes(ev.startTime);
+            const endMin = toMinutes(ev.endTime);
+            earliestHour = Math.min(earliestHour, Math.floor(startMin / 60));
+            latestHour = Math.max(latestHour, Math.ceil(endMin / 60));
+        }
+        const dayBusy = getDisplayBusyForDate(dateStr);
+        for (const busy of dayBusy) {
+            const startMin = toMinutes(busy.startTime);
+            const endMin = toMinutes(busy.endTime);
+            earliestHour = Math.min(earliestHour, Math.floor(startMin / 60));
+            latestHour = Math.max(latestHour, Math.ceil(endMin / 60));
+        }
+    }
+    earliestHour = Math.max(6, earliestHour - 1);
+    latestHour = Math.min(22, latestHour + 1);
+    if (earliestHour >= latestHour) { earliestHour = 6; latestHour = 22; }
+
+    const totalMinutes = (latestHour - earliestHour) * 60;
+    const dayHeight = totalMinutes * PIXELS_PER_MIN;
+
+    let html = `<div class="weekdays flex overflow-x-auto">`;
+    days.forEach(d => {
+        const isToday = formatDate(d) === formatDate(new Date());
+        html += `<div class="day-header text-center font-semibold py-2 ${isToday ? 'today-header' : ''}" style="min-width: 80px; flex-shrink: 0;">
+                    ${d.toLocaleDateString(undefined, { weekday: 'short' })}<br>${d.getDate()}
+                 </div>`;
+    });
+    html += `</div>`;
+    html += `<div class="timeline-container" style="display: flex;">`;
+    html += `<div class="time-col" style="width: 70px; flex-shrink: 0;">`;
+    for (let minute = earliestHour * 60; minute <= latestHour * 60; minute += 30) {
+        html += `<div style="height: ${30 * PIXELS_PER_MIN}px; display: flex; align-items: center; justify-content: flex-end; padding-right: 8px; font-size: 0.7rem;">${formatTime(minute)}</div>`;
+    }
+    html += `</div>`;
+    html += `<div class="days-row" style="display: flex; flex: 1; overflow-x: auto;">`;
+
+    for (const day of days) {
+        const dayStr = formatDate(day);
+        const dayEvents = getDisplayEventsForDate(dayStr);
+        const dayBusy = getDisplayBusyForDate(dayStr);
+        const isToday = dayStr === formatDate(new Date());
+
+        html += `<div class="day-cell relative" data-date="${dayStr}" style="flex: 0 0 90px; min-width: 90px; height: ${dayHeight}px; position: relative; background: ${isToday ? '#eff6ff' : 'white'}; border-right: 1px solid #e5e7eb;">`;
+        for (const busy of dayBusy) {
+            const startMin = toMinutes(busy.startTime);
+            const endMin = toMinutes(busy.endTime);
+            if (endMin > earliestHour * 60 && startMin < latestHour * 60) {
+                const startOffset = Math.max(startMin, earliestHour * 60);
+                const endOffset = Math.min(endMin, latestHour * 60);
+                const top = (startOffset - earliestHour * 60) * PIXELS_PER_MIN;
+                const height = (endOffset - startOffset) * PIXELS_PER_MIN;
+                html += `<div class="busy-overlay ${busy.hard ? 'hard' : ''}" style="position: absolute; top: ${top}px; height: ${height}px; left: 0; right: 0;"></div>`;
+            }
+        }
+        if (userSettings.showTodosInCalendar) {
+            const todosDue = todos.filter(t => !t.completed && t.dueDate === dayStr);
+            if (todosDue.length > 0) {
+                html += `<div class="todo-badge" style="position: absolute; top: 2px; right: 2px; background: #f59e0b; color: white; border-radius: 12px; padding: 0px 6px; font-size: 10px; font-weight: bold;">📝${todosDue.length}</div>`;
+            }
+        }
         for (const ev of dayEvents) {
             const startMin = toMinutes(ev.startTime);
             const endMin = toMinutes(ev.endTime);
@@ -242,34 +278,32 @@ async function renderMobileWeekView(container) {
                 const isLocked = overrides.has(`${ev.id}_${dayStr}`) && overrides.get(`${ev.id}_${dayStr}`).type === 'locked';
                 const hasConflict = dayBusy.some(b => endMin > toMinutes(b.startTime) && startMin < toMinutes(b.endTime)) ||
                                    dayEvents.some(other => other.id !== ev.id && endMin > toMinutes(other.startTime) && startMin < toMinutes(other.endTime));
-                const duration = endMin - startMin;
-                const isShort = duration < 30;
+                const isScheduled = ev.isScheduled || false;
 
                 let extraClasses = '';
                 if (isNogo) extraClasses += ' nogo';
                 if (isLocked) extraClasses += ' locked';
                 if (hasConflict) extraClasses += ' conflict-pulse';
+                if (isScheduled) extraClasses += ' scheduled';
 
-                html += `<div class="event-block${extraClasses} ${isShort ? 'short-block' : ''}"
+                html += `<div class="event-block${extraClasses}"
                             data-id="${ev.id}" data-date="${dayStr}"
                             style="position: absolute; top: ${top}px; height: ${height}px; left: 2px; right: 2px; background-color: ${ev.color || '#3b82f6'}; border-radius: 6px; padding: 2px 4px; font-size: 0.7rem; font-weight: 600; color: white; cursor: pointer; overflow: hidden; white-space: normal; z-index: 10;">
                             ${escapeHtml(ev.name)}
                             <span class="event-time" style="font-size: 0.6rem; font-weight: normal; display: block;">${formatTime(startMin)}–${formatTime(endMin)}</span>
                             ${hasConflict ? '<span class="conflict-label" style="position: absolute; top: 2px; right: 2px; background: red; color: white; border-radius: 50%; width: 16px; height: 16px; font-size: 10px; text-align: center;">⚠️</span>' : ''}
+                            ${isScheduled ? '<span class="scheduled-label" style="position: absolute; bottom: 2px; right: 2px; font-size: 8px; background: rgba(0,0,0,0.4); padding: 0px 2px; border-radius: 3px;">⚙️</span>' : ''}
                         </div>`;
             }
         }
-
         html += `</div>`;
     }
 
-    html += `</div>`; // close days-row
-    html += `</div>`; // close timeline-container
-
+    html += `</div></div>`;
     container.innerHTML = html;
 }
 
-// ========== MONTH VIEW (unchanged, but added conflict pulse) ==========
+// ========== MONTH VIEW (with scheduled events and todo badges) ==========
 async function renderMonthView(container) {
     const year = currentDate.getFullYear();
     const month = currentDate.getMonth();
@@ -287,7 +321,6 @@ async function renderMonthView(container) {
         weeks.push(week);
     }
 
-    // Build day headers respecting firstDayOfWeek
     const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
     const orderedDayNames = [...dayNames.slice(firstDayOfWeek), ...dayNames.slice(0, firstDayOfWeek)];
     let html = `<div class="month-view"><div class="weekdays flex">${orderedDayNames.map(d => `<div class="day-header flex-1 text-center py-2">${d}</div>`).join('')}</div>`;
@@ -296,7 +329,7 @@ async function renderMonthView(container) {
         html += `<div class="flex">`;
         for (const date of week) {
             const dateStr = formatDate(date);
-            const dayEvents = getEventsForDate(dateStr);
+            const dayEvents = getDisplayEventsForDate(dateStr);
             const isCurrentMonth = date.getMonth() === month;
             const isToday = dateStr === formatDate(new Date());
 
@@ -304,18 +337,29 @@ async function renderMonthView(container) {
                         <div class="text-right text-sm font-semibold cursor-pointer" data-nav-date="${dateStr}">${date.getDate()}</div>`;
             // Show up to 3 events
             const maxDisplay = 3;
+            let eventCount = 0;
             for (let i = 0; i < Math.min(dayEvents.length, maxDisplay); i++) {
                 const ev = dayEvents[i];
                 const isNogo = overrides.has(`${ev.id}_${dateStr}`) && overrides.get(`${ev.id}_${dateStr}`).type === 'nogo';
-                const hasConflict = getBusyBlocksForDate(dateStr).some(b => toMinutes(ev.endTime) > toMinutes(b.startTime) && toMinutes(ev.startTime) < toMinutes(b.endTime)) ||
+                const hasConflict = getDisplayBusyForDate(dateStr).some(b => toMinutes(ev.endTime) > toMinutes(b.startTime) && toMinutes(ev.startTime) < toMinutes(b.endTime)) ||
                                    dayEvents.some(other => other.id !== ev.id && toMinutes(ev.endTime) > toMinutes(other.startTime) && toMinutes(ev.startTime) < toMinutes(other.endTime));
-                html += `<div class="event-block-month ${isNogo ? 'nogo' : ''} ${hasConflict ? 'conflict-pulse' : ''} text-xs rounded p-1 mt-1 truncate"
+                const isScheduled = ev.isScheduled || false;
+                html += `<div class="event-block-month ${isNogo ? 'nogo' : ''} ${hasConflict ? 'conflict-pulse' : ''} ${isScheduled ? 'scheduled' : ''} text-xs rounded p-1 mt-1 truncate"
                             data-id="${ev.id}" data-date="${dateStr}" style="background-color:${ev.color || '#3b82f6'};">
                             ${escapeHtml(ev.name)}
+                            ${isScheduled ? '⚙️' : ''}
                          </div>`;
+                eventCount++;
             }
             if (dayEvents.length > maxDisplay) {
                 html += `<div class="text-xs text-blue-500 mt-1 cursor-pointer more-events" data-date="${dateStr}">+${dayEvents.length - maxDisplay} more</div>`;
+            }
+            // Show todo badge
+            if (userSettings.showTodosInCalendar) {
+                const todosDue = todos.filter(t => !t.completed && t.dueDate === dateStr);
+                if (todosDue.length > 0) {
+                    html += `<div class="todo-badge text-xs text-gray-500 mt-1">📝 ${todosDue.length}</div>`;
+                }
             }
             html += `</div>`;
         }
@@ -324,12 +368,12 @@ async function renderMonthView(container) {
     html += `</div>`;
     container.innerHTML = html;
 
-    // Attach "more events" click handlers and date navigation (unchanged)
+    // Attach "more events" click handlers
     container.querySelectorAll('.more-events').forEach(el => {
         el.onclick = (e) => {
             e.stopPropagation();
             const dateStr = el.dataset.date;
-            const dayEvents = getEventsForDate(dateStr);
+            const dayEvents = getDisplayEventsForDate(dateStr);
             const existing = document.getElementById('moreEventsPopup');
             if (existing) existing.remove();
             const popup = document.createElement('div');
@@ -341,7 +385,7 @@ async function renderMonthView(container) {
             popup.innerHTML = `<div class="font-semibold mb-2">${formatDateDisplay(dateStr)}</div>` +
                 dayEvents.map(ev => `<div class="py-1 border-b border-gray-100 dark:border-slate-700 text-xs">
                     <span style="display:inline-block; width:8px; height:8px; border-radius:50%; background:${ev.color || '#3b82f6'}; margin-right:4px;"></span>
-                    ${formatTime(toMinutes(ev.startTime))} ${escapeHtml(ev.name)}
+                    ${formatTime(toMinutes(ev.startTime))} ${escapeHtml(ev.name)} ${ev.isScheduled ? '⚙️' : ''}
                 </div>`).join('') +
                 `<button class="mt-2 text-xs text-gray-400 w-full text-right">Close</button>`;
             document.body.appendChild(popup);
@@ -361,20 +405,107 @@ async function renderMonthView(container) {
     });
 }
 
+// ========== DAY VIEW (new) ==========
+async function renderDayView(container) {
+    const date = currentDate;
+    const dateStr = formatDate(date);
+    const dayEvents = getDisplayEventsForDate(dateStr);
+    const dayBusy = getDisplayBusyForDate(dateStr);
+
+    let earliestHour = 24, latestHour = 0;
+    for (const ev of dayEvents) {
+        const startMin = toMinutes(ev.startTime);
+        const endMin = toMinutes(ev.endTime);
+        earliestHour = Math.min(earliestHour, Math.floor(startMin / 60));
+        latestHour = Math.max(latestHour, Math.ceil(endMin / 60));
+    }
+    for (const busy of dayBusy) {
+        const startMin = toMinutes(busy.startTime);
+        const endMin = toMinutes(busy.endTime);
+        earliestHour = Math.min(earliestHour, Math.floor(startMin / 60));
+        latestHour = Math.max(latestHour, Math.ceil(endMin / 60));
+    }
+    earliestHour = Math.max(6, earliestHour - 1);
+    latestHour = Math.min(22, latestHour + 1);
+    if (earliestHour >= latestHour) { earliestHour = 6; latestHour = 22; }
+
+    const totalMinutes = (latestHour - earliestHour) * 60;
+    const containerHeight = totalMinutes * PIXELS_PER_MIN;
+
+    let html = `<div class="day-view">
+                    <div class="day-header text-center font-semibold py-2">${date.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })}</div>
+                    <div class="timeline-container" style="display: flex;">
+                        <div class="time-col" style="width: 70px; flex-shrink: 0;">`;
+    for (let minute = earliestHour * 60; minute <= latestHour * 60; minute += 30) {
+        html += `<div style="height: ${30 * PIXELS_PER_MIN}px; display: flex; align-items: center; justify-content: flex-end; padding-right: 8px; font-size: 0.7rem;">${formatTime(minute)}</div>`;
+    }
+    html += `</div><div class="day-cell" style="flex:1; position: relative; height: ${containerHeight}px; background: white; border-left: 1px solid #e5e7eb;">`;
+
+    for (const busy of dayBusy) {
+        const startMin = toMinutes(busy.startTime);
+        const endMin = toMinutes(busy.endTime);
+        if (endMin > earliestHour * 60 && startMin < latestHour * 60) {
+            const startOffset = Math.max(startMin, earliestHour * 60);
+            const endOffset = Math.min(endMin, latestHour * 60);
+            const top = (startOffset - earliestHour * 60) * PIXELS_PER_MIN;
+            const height = (endOffset - startOffset) * PIXELS_PER_MIN;
+            html += `<div class="busy-overlay ${busy.hard ? 'hard' : ''}" style="position: absolute; top: ${top}px; height: ${height}px; left: 0; right: 0;"></div>`;
+        }
+    }
+
+    for (const ev of dayEvents) {
+        const startMin = toMinutes(ev.startTime);
+        const endMin = toMinutes(ev.endTime);
+        if (endMin > earliestHour * 60 && startMin < latestHour * 60) {
+            const startOffset = Math.max(startMin, earliestHour * 60);
+            const endOffset = Math.min(endMin, latestHour * 60);
+            const top = (startOffset - earliestHour * 60) * PIXELS_PER_MIN;
+            const height = (endOffset - startOffset) * PIXELS_PER_MIN;
+
+            const isNogo = overrides.has(`${ev.id}_${dateStr}`) && overrides.get(`${ev.id}_${dateStr}`).type === 'nogo';
+            const isLocked = overrides.has(`${ev.id}_${dateStr}`) && overrides.get(`${ev.id}_${dateStr}`).type === 'locked';
+            const hasConflict = dayBusy.some(b => endMin > toMinutes(b.startTime) && startMin < toMinutes(b.endTime)) ||
+                               dayEvents.some(other => other.id !== ev.id && endMin > toMinutes(other.startTime) && startMin < toMinutes(other.endTime));
+            const isScheduled = ev.isScheduled || false;
+
+            let extraClasses = '';
+            if (isNogo) extraClasses += ' nogo';
+            if (isLocked) extraClasses += ' locked';
+            if (hasConflict) extraClasses += ' conflict-pulse';
+            if (isScheduled) extraClasses += ' scheduled';
+
+            html += `<div class="event-block${extraClasses}"
+                        data-id="${ev.id}" data-date="${dateStr}"
+                        style="position: absolute; top: ${top}px; height: ${height}px; left: 2px; right: 2px; background-color: ${ev.color || '#3b82f6'}; border-radius: 6px; padding: 2px 4px; font-size: 0.7rem; font-weight: 600; color: white; cursor: pointer; overflow: hidden; white-space: normal; z-index: 10;">
+                        ${escapeHtml(ev.name)}
+                        <span class="event-time" style="font-size: 0.6rem; font-weight: normal; display: block;">${formatTime(startMin)}–${formatTime(endMin)}</span>
+                        ${hasConflict ? '<span class="conflict-label" style="position: absolute; top: 2px; right: 2px; background: red; color: white; border-radius: 50%; width: 16px; height: 16px; font-size: 10px; text-align: center;">⚠️</span>' : ''}
+                        ${isScheduled ? '<span class="scheduled-label" style="position: absolute; bottom: 2px; right: 2px; font-size: 8px; background: rgba(0,0,0,0.4); padding: 0px 2px; border-radius: 3px;">⚙️</span>' : ''}
+                    </div>`;
+        }
+    }
+
+    html += `</div></div>`;
+    container.innerHTML = html;
+    if (dayEvents.length === 0 && (!userSettings.showTodosInCalendar || todos.filter(t => !t.completed && t.dueDate === dateStr).length === 0)) {
+        renderEmptyState(container);
+    }
+}
+
 // ========== EMPTY STATE ==========
 function renderEmptyState(container) {
     const emptyDiv = document.createElement('div');
     emptyDiv.className = 'empty-state';
     emptyDiv.innerHTML = `
         <i class="fas fa-calendar-plus"></i>
-        <div class="text-lg font-medium mb-1">No events this week</div>
+        <div class="text-lg font-medium mb-1">No events</div>
         <div class="text-sm">Tap <strong>+</strong> to add your first event</div>
     `;
     container.style.position = 'relative';
     container.appendChild(emptyDiv);
 }
 
-// ========== EVENT TOOLTIP (hover) – unchanged ==========
+// ========== EVENT TOOLTIP (with like/dislike) ==========
 let tooltipEl = null;
 
 function showEventTooltip(ev, x, y) {
@@ -388,6 +519,10 @@ function showEventTooltip(ev, x, y) {
         <div style="font-size:0.75rem; color:#f59e0b;">${stars}</div>
         ${ev.travelMins ? `<div style="color:#9ca3af; font-size:0.7rem;">🚗 ${ev.travelMins} min travel</div>` : ''}
         ${ev.notes ? `<div class="tooltip-notes">${escapeHtml(ev.notes.slice(0, 80))}${ev.notes.length > 80 ? '…' : ''}</div>` : ''}
+        <div style="display: flex; gap: 8px; margin-top: 8px;">
+            <button class="feedback-like" data-id="${ev.id}" style="background: none; border: none; cursor: pointer; font-size: 0.8rem;">👍 Like</button>
+            <button class="feedback-dislike" data-id="${ev.id}" style="background: none; border: none; cursor: pointer; font-size: 0.8rem;">👎 Dislike</button>
+        </div>
         <div style="font-size:0.65rem; color:#9ca3af; margin-top:0.25rem;">Right‑click for options</div>
     `;
     tooltipEl.style.left = (x + 12) + 'px';
@@ -400,18 +535,36 @@ function showEventTooltip(ev, x, y) {
     if (rect.bottom > window.innerHeight - 10) {
         tooltipEl.style.top = (y - rect.height + 10) + 'px';
     }
+
+    // Attach feedback handlers
+    const likeBtn = tooltipEl.querySelector('.feedback-like');
+    const dislikeBtn = tooltipEl.querySelector('.feedback-dislike');
+    if (likeBtn) likeBtn.onclick = () => { submitFeedback(ev.id, 'like'); hideEventTooltip(); };
+    if (dislikeBtn) dislikeBtn.onclick = () => { submitFeedback(ev.id, 'dislike'); hideEventTooltip(); };
 }
 
 function hideEventTooltip() {
     if (tooltipEl) { tooltipEl.remove(); tooltipEl = null; }
 }
 
-// ========== ATTACH ALL CALENDAR INTERACTIONS (unchanged but uses new classes) ==========
+async function submitFeedback(eventId, type) {
+    const feedback = {
+        eventId,
+        type,
+        timestamp: new Date().toISOString()
+    };
+    await addRecord('userFeedback', feedback);
+    await addRecord('learningData', { type: 'preference', eventId, preference: type, timestamp: new Date() });
+    showToast(`Thanks for your feedback!`, 'success');
+    // Optionally re-run optimizer
+    if (typeof runOptimizer === 'function') runOptimizer();
+}
+
+// ========== ATTACH ALL CALENDAR INTERACTIONS ==========
 function attachCalendarEvents() {
     const container = document.getElementById('calendarGrid');
     if (!container) return;
 
-    // Click: open event modal
     container.onclick = (e) => {
         const block = e.target.closest('.event-block, .event-block-month');
         if (block) {
@@ -424,7 +577,6 @@ function attachCalendarEvents() {
         }
     };
 
-    // Right-click: context menu
     container.oncontextmenu = (e) => {
         const block = e.target.closest('.event-block, .event-block-month');
         const cell = e.target.closest('.day-cell');
@@ -438,7 +590,6 @@ function attachCalendarEvents() {
         }
     };
 
-    // Hover tooltip (desktop only)
     if (window.matchMedia('(hover: hover)').matches) {
         container.addEventListener('mouseover', (e) => {
             const block = e.target.closest('.event-block, .event-block-month');
@@ -459,7 +610,6 @@ function attachCalendarEvents() {
         });
     }
 
-    // Keyboard navigation on event blocks (focusable)
     container.querySelectorAll('.event-block').forEach(block => {
         block.addEventListener('keydown', (e) => {
             if (e.key === 'Enter' || e.key === ' ') {
@@ -477,7 +627,6 @@ function attachCalendarEvents() {
         });
     });
 
-    // Busy overlay click: open busy modal for that day
     container.querySelectorAll('.busy-overlay').forEach(overlay => {
         overlay.addEventListener('click', (e) => {
             e.stopPropagation();
@@ -486,7 +635,6 @@ function attachCalendarEvents() {
         });
     });
 
-    // Long press for mobile (touch)
     let pressTimer = null;
     container.addEventListener('touchstart', (e) => {
         const block = e.target.closest('.event-block, .event-block-month');
@@ -509,7 +657,7 @@ function attachCalendarEvents() {
     container.addEventListener('touchmove', () => { if (pressTimer) clearTimeout(pressTimer); });
 }
 
-// ========== UI HELPERS (updated to work with absolute positioning) ==========
+// ========== UI HELPERS ==========
 function updateDateRangeDisplay() {
     const display = document.getElementById('dateRangeDisplay');
     if (!display) return;
@@ -518,8 +666,10 @@ function updateDateRangeDisplay() {
         startOfWeek.setDate(currentDate.getDate() - ((currentDate.getDay() - firstDayOfWeek + 7) % 7));
         const endOfWeek = addDays(startOfWeek, 6);
         display.innerText = `${startOfWeek.toLocaleDateString()} – ${endOfWeek.toLocaleDateString()}`;
-    } else {
+    } else if (currentView === 'month') {
         display.innerText = currentDate.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+    } else if (currentView === 'day') {
+        display.innerText = currentDate.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' });
     }
 }
 
@@ -535,18 +685,16 @@ function formatTime(min) {
 }
 
 function updateNowLine() {
-    if (currentView !== 'week') return;
+    if (currentView !== 'week' && currentView !== 'day') return;
     const now = new Date();
     const nowMin = now.getHours() * 60 + now.getMinutes();
 
-    // Find the earliestHour used in the current render – we need to get it from the DOM or compute again.
-    // Since we don't have the earliestHour variable here, we can extract it from the first time label.
     const timeLabels = document.querySelectorAll('.time-col > div');
     if (!timeLabels.length) return;
     const firstTime = parseTime(timeLabels[0].innerText.trim());
     if (firstTime === null) return;
     const earliestHour = Math.floor(firstTime / 60);
-    const latestHour = earliestHour + (timeLabels.length * 0.5); // each label is 30 min
+    const latestHour = earliestHour + (timeLabels.length * 0.5);
 
     const totalMinutesRange = (latestHour - earliestHour) * 60;
     const nowOffset = nowMin - earliestHour * 60;
@@ -558,7 +706,7 @@ function updateNowLine() {
         line.className = 'now-line';
         line.style.position = 'absolute';
         line.style.top = `${top}px`;
-        line.style.left = '70px'; // width of time column
+        line.style.left = '70px';
         line.style.right = '0';
         line.style.borderTop = '3px solid #ef4444';
         line.style.zIndex = '20';
@@ -586,7 +734,7 @@ function parseTime(timeStr) {
 }
 
 function scrollToNow() {
-    if (currentView !== 'week') return;
+    if (currentView !== 'week' && currentView !== 'day') return;
     const now = new Date();
     const nowMin = now.getHours() * 60 + now.getMinutes();
 
