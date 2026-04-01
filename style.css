@@ -1562,6 +1562,64 @@ html, body {
   color: #1f2937;
 }
 
+/* ========== WIZARD ENHANCEMENTS ========== */
+.wizard-progress {
+  background-color: var(--color-border);
+  border-radius: var(--radius-pill);
+  overflow: hidden;
+  margin-bottom: 0.25rem;
+}
+.wizard-progress-fill {
+  background-color: var(--color-primary);
+  height: 100%;
+  width: 0%;
+  transition: width 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+#wizardStepLabel {
+  font-size: 0.7rem;
+  color: var(--color-text-muted);
+  margin-top: 0.25rem;
+  text-align: center;
+}
+#wizardSkipBtn {
+  font-size: 0.75rem;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0.25rem 0.5rem;
+  border-radius: var(--radius-pill);
+  transition: background 0.2s;
+  color: var(--color-text-secondary);
+}
+#wizardSkipBtn:hover {
+  background: var(--color-surface-2);
+}
+/* Step transition animation */
+.wizard-step-enter {
+  animation: slideInRight 0.2s ease-out;
+}
+@keyframes slideInRight {
+  from {
+    opacity: 0;
+    transform: translateX(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+/* Ensure wizard content container fades in smoothly */
+#wizardStepsContainer {
+  transition: opacity 0.2s ease;
+}
+/* Dark mode adjustments for wizard */
+.dark #wizardSkipBtn {
+  color: var(--color-text-secondary);
+}
+.dark #wizardSkipBtn:hover {
+  background: var(--color-surface-2);
+}
+
 /* ========== ACCESSIBILITY & FOCUS RINGS ========== */
 .event-block:focus-visible,
 .event-block-month:focus-visible {
