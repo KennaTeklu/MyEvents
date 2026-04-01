@@ -242,77 +242,8 @@ async function runOptimizer() {
     }
 }
 
-// ========== UNDO/REDO ==========
-async function pushAction(description, undoFunc, redoFunc) {
-    const snapshot = {
-        events: deepClone(events),
-        busyBlocks: deepClone(busyBlocks),
-        places: deepClone(places),
-        overrides: Array.from(overrides.entries()),
-        todos: deepClone(todos),
-        scheduledEvents: deepClone(scheduledEvents),
-        learningData: deepClone(learningData)
-    };
-    const action = {
-        description,
-        undo: async () => {
-            await restoreSnapshot(snapshot);
-            if (undoFunc) await undoFunc();
-        },
-        redo: async () => {
-            if (redoFunc) await redoFunc();
-            else await fullRefresh();
-        },
-        timestamp: Date.now()
-    };
-    undoStack.push(action);
-    redoStack = [];
-    updateUndoRedoButtons();
-}
-
-async function restoreSnapshot(snapshot) {
-    await clearStore('events');
-    for (let ev of snapshot.events) await addRecord('events', ev);
-    await clearStore('busyBlocks');
-    for (let bb of snapshot.busyBlocks) await addRecord('busyBlocks', bb);
-    await clearStore('places');
-    for (let pl of snapshot.places) await addRecord('places', pl);
-    await clearStore('overrides');
-    for (let [k, v] of snapshot.overrides) await putRecord('overrides', v);
-    await clearStore('todos');
-    for (let td of snapshot.todos) await addRecord('todos', td);
-    await clearStore('scheduledEvents');
-    for (let se of snapshot.scheduledEvents) await addRecord('scheduledEvents', se);
-    await clearStore('learningData');
-    // learningData is complex, but we can store as records; for simplicity, we'll just store the array
-    for (let ld of snapshot.learningData.eventDurations) await addRecord('learningData', ld);
-    for (let lt of snapshot.learningData.travelTimes) await addRecord('learningData', lt);
-    for (let lp of snapshot.learningData.preferences) await addRecord('learningData', lp);
-    await fullRefresh();
-}
-
-async function undo() {
-    if (undoStack.length === 0) return;
-    const action = undoStack.pop();
-    await action.undo();
-    redoStack.push(action);
-    updateUndoRedoButtons();
-    showToast(`Undo: ${action.description}`);
-}
-async function redo() {
-    if (redoStack.length === 0) return;
-    const action = redoStack.pop();
-    await action.redo();
-    undoStack.push(action);
-    updateUndoRedoButtons();
-    showToast(`Redo: ${action.description}`);
-}
-function updateUndoRedoButtons() {
-    const undoBtn = document.getElementById('undoBtn');
-    const redoBtn = document.getElementById('redoBtn');
-    if (undoBtn) undoBtn.disabled = undoStack.length === 0;
-    if (redoBtn) redoBtn.disabled = redoStack.length === 0;
-}
+// Undo/Redo functionality is now provided by undoRedo.js
+// The global undo() and redo() functions are defined there.
 
 // ========== GPS ==========
 async function startGPS() {
