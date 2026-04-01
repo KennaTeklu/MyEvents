@@ -1,4 +1,4 @@
-// main.js - Main initialization and orchestration
+// main.js - Main initialization and orchestration (enhanced)
 // Must be loaded last, after all other scripts
 
 // ========== HELPER FUNCTIONS ==========
@@ -7,12 +7,26 @@ async function fullRefresh() {
     await detectConflicts();
     await renderCalendar();
     updateNotifications();
-    // Update live JSON visualizer if present
     if (typeof updateLiveJSON === 'function') updateLiveJSON();
+    // Trigger optimizer if auto-optimize is on (debounced)
+    if (userSettings.autoOptimizeOnChange !== false) {
+        debouncedOptimizerRun();
+    }
+}
+
+// Debounced optimizer call
+let optimizerDebounceTimer = null;
+function debouncedOptimizerRun() {
+    if (optimizerDebounceTimer) clearTimeout(optimizerDebounceTimer);
+    optimizerDebounceTimer = setTimeout(() => {
+        if (typeof runOptimizer === 'function') runOptimizer();
+        else console.warn('Optimizer not available');
+    }, 500);
 }
 
 async function loadData() {
     try {
+        // Existing stores
         events = await getAll('events');
         busyBlocks = await getAll('busyBlocks');
         places = await getAll('places');
@@ -21,6 +35,19 @@ async function loadData() {
         for (let ov of overridesList) overrides.set(ov.compositeKey, ov);
         attendanceLog = await getAll('attendanceLog');
 
+        // New stores
+        todos = await getAll('todos');
+        scheduledEvents = await getAll('scheduledEvents');
+        learningData = {
+            eventDurations: (await getAll('learningData')).filter(l => l.type === 'duration'),
+            travelTimes: (await getAll('learningData')).filter(l => l.type === 'travel'),
+            preferences: (await getAll('learningData')).filter(l => l.type === 'preference'),
+            preferredTimeSlots: {}
+        };
+        locationHistory = await getAll('locationHistory');
+        userFeedback = await getAll('userFeedback');
+
+        // Load settings (existing)
         restPolicy = (await getSetting('restPolicy')) ?? 'home';
         farMinutes = (await getSetting('farMinutes')) ?? 10;
         firstDayOfWeek = (await getSetting('firstDayOfWeek')) ?? 1;
@@ -30,9 +57,21 @@ async function loadData() {
         notifyMinutesBefore = (await getSetting('notifyMinutesBefore')) ?? 60;
         notifyTravelLead = (await getSetting('notifyTravelLead')) ?? 5;
 
+        // Load new settings (userSettings object)
+        const storedUserSettings = await getSetting('userSettings');
+        if (storedUserSettings) {
+            Object.assign(userSettings, storedUserSettings);
+        } else {
+            // Fallback to defaults defined in state.js
+        }
+
+        // Sync planningHorizonWeeks from userSettings to global for convenience
+        planningHorizonWeeks = userSettings.planningHorizonWeeks ?? 4;
+
         if (darkMode) document.documentElement.classList.add('dark');
         else document.documentElement.classList.remove('dark');
 
+        // Ensure at least one place
         if (!places.length) {
             places.push({ id: 1, name: 'Home', lat: null, lon: null, radius: 30, travelToEvent: {} });
             await putRecord('places', places[0]);
@@ -43,6 +82,20 @@ async function loadData() {
             placeDisplay.innerText = `📍 ${places.find(p => p.id === currentPlaceId)?.name || 'Home'}`;
         }
 
+        // Update currentLocation with the latest coordinates if we have GPS fix
+        if (gpsWatchId) {
+            // GPS already running, location will be updated by handleGpsPosition
+        } else if (navigator.geolocation) {
+            // Get one-time position to set currentLocation
+            navigator.geolocation.getCurrentPosition(pos => {
+                currentLocation.lat = pos.coords.latitude;
+                currentLocation.lon = pos.coords.longitude;
+                currentLocation.timestamp = new Date();
+                // Optionally, find nearest place and set placeId/sublocationId
+                updateCurrentPlaceFromLocation();
+            }, () => {});
+        }
+
         syncSettingsToUI();
         console.log('loadData completed successfully');
     } catch (error) {
@@ -51,7 +104,44 @@ async function loadData() {
     }
 }
 
-// ========== SHOW MAIN APP (hide wizard, show main UI) ==========
+// Helper to update currentPlaceId from currentLocation
+function updateCurrentPlaceFromLocation() {
+    if (!currentLocation.lat || !currentLocation.lon) return;
+    let matched = null;
+    for (let p of places) {
+        if (p.lat && p.lon) {
+            const dist = getDistance(currentLocation.lat, currentLocation.lon, p.lat, p.lon);
+            if (dist <= p.radius) {
+                matched = p;
+                break;
+            }
+        }
+    }
+    if (matched && matched.id !== currentPlaceId) {
+        currentPlaceId = matched.id;
+        // Also check sublocations
+        if (matched.sublocations) {
+            for (let sub of matched.sublocations) {
+                if (sub.lat && sub.lon) {
+                    const dist = getDistance(currentLocation.lat, currentLocation.lon, sub.lat, sub.lon);
+                    if (dist <= 30) { // small radius for sublocation
+                        currentLocation.sublocationId = sub.id || sub.name;
+                        currentLocation.sublocationName = sub.name;
+                        break;
+                    }
+                }
+            }
+        }
+        const placeDisplay = document.getElementById('currentPlaceDisplay');
+        if (placeDisplay) {
+            let displayName = matched.name;
+            if (currentLocation.sublocationName) displayName += ` (${currentLocation.sublocationName})`;
+            placeDisplay.innerText = `📍 ${displayName}`;
+        }
+    }
+}
+
+// ========== SHOW MAIN APP ==========
 async function showMainApp() {
     const wizardOverlay = document.getElementById('wizardOverlay');
     const mainApp = document.getElementById('mainApp');
@@ -60,22 +150,21 @@ async function showMainApp() {
     if (wizardOverlay) wizardOverlay.classList.add('hidden');
     if (mainApp) {
         mainApp.classList.remove('hidden');
-        // Optional: add a subtle animation
         mainApp.style.animation = 'fadeInUp 0.4s ease';
         setTimeout(() => { mainApp.style.animation = ''; }, 500);
     }
     if (fab) fab.classList.remove('hidden');
 
     await fullRefresh();
-    // Scroll to current time after calendar renders
     if (typeof scrollToNow === 'function') scrollToNow();
     showToast('Ready!', 'success');
+    // Run initial optimizer after data loaded
+    if (typeof runOptimizer === 'function') runOptimizer();
 }
 
 // ========== CONFLICT DETECTION ==========
 async function detectConflicts() {
     conflicts = [];
-    // For each day in the visible range (week or month), check event vs busy
     const start = new Date(currentDate);
     let end = new Date(currentDate);
     if (currentView === 'week') {
@@ -90,7 +179,7 @@ async function detectConflicts() {
     let cur = new Date(start);
     while (cur <= end) {
         const dateStr = formatDate(cur);
-        const dayEvents = getEventsForDate(dateStr);
+        const dayEvents = getDisplayEventsForDate(dateStr); // use display events
         const dayBusy = getBusyBlocksForDate(dateStr);
         for (let ev of dayEvents) {
             const evStart = toMinutes(ev.startTime);
@@ -107,43 +196,62 @@ async function detectConflicts() {
     }
 }
 
-// ========== TRAVEL TIME ESTIMATION ==========
+// ========== TRAVEL TIME ESTIMATION (enhanced with learning) ==========
 function getTravelTime(eventId, fromPlaceId = currentPlaceId) {
     const fromPlace = places.find(p => p.id === fromPlaceId);
     const toPlace = places.find(p => p.id === currentPlaceId);
     if (!fromPlace || !toPlace) return 15;
-    // If both places have coordinates, compute approximate distance
+
+    // Check learned travel times from learningData
+    const learned = learningData.travelTimes.find(t => t.fromPlaceId === fromPlaceId && t.toPlaceId === currentPlaceId);
+    if (learned && learned.minutes) return Math.round(learned.minutes);
+
+    // Fallback to distance-based
     if (fromPlace.lat && fromPlace.lon && toPlace.lat && toPlace.lon) {
         const dist = getDistance(fromPlace.lat, fromPlace.lon, toPlace.lat, toPlace.lon);
-        // Assume walking speed 5 km/h => 1 km = 12 min
-        const walkingMinutes = dist / (5000 / 60);
-        return Math.min(60, Math.max(5, Math.round(walkingMinutes)));
+        const speed = userSettings.travelSpeed === 'driving' ? 50 : 5; // km/h
+        const minutes = dist / (speed * 1000 / 60);
+        return Math.min(120, Math.max(5, Math.round(minutes)));
     }
-    // Fallback: look up custom travel time from place.travelToEvent map
+    // Custom travel time from place.travelToEvent
     const custom = fromPlace.travelToEvent?.[eventId] || toPlace.travelToEvent?.[eventId];
     return custom ?? 15;
 }
 
-// ========== OPTIMIZER (Greedy Constraint Solver) ==========
+// ========== OPTIMIZER (calls scheduler module) ==========
 async function runOptimizer() {
-    // For demonstration, we'll just show a toast that the optimizer is not yet fully integrated.
-    showToast('Optimizer running (beta) – this will pack events into your week.', 'info');
-    // In a real implementation, you would:
-    // - Get all unscheduled tasks (events with no specific date yet)
-    // - Iterate over days in the planning range, find free blocks respecting travel+rest
-    // - Assign events to slots greedily based on priority
-    // - Update the schedule and persist overrides
-    // This is a placeholder; the actual logic is complex and will be added later.
+    if (optimizerLock) return;
+    optimizerLock = true;
+    showToast('Optimizing your schedule...', 'info');
+    try {
+        // If we have a scheduler module, call it
+        if (typeof scheduleEvents === 'function') {
+            await scheduleEvents();
+        } else {
+            // Fallback: just show message and re-render
+            console.warn('Optimizer not fully implemented yet');
+            showToast('Optimizer will be available soon!', 'info');
+        }
+    } catch (err) {
+        console.error('Optimizer error:', err);
+        showToast('Optimization failed', 'error');
+    } finally {
+        optimizerLock = false;
+        lastOptimizerRun = new Date();
+        await fullRefresh(); // ensure schedule is displayed
+    }
 }
 
-// ========== UNDO/REDO (Snapshots) ==========
+// ========== UNDO/REDO ==========
 async function pushAction(description, undoFunc, redoFunc) {
-    // Store a snapshot of the current state
     const snapshot = {
-        events: JSON.parse(JSON.stringify(events)),
-        busyBlocks: JSON.parse(JSON.stringify(busyBlocks)),
-        places: JSON.parse(JSON.stringify(places)),
-        overrides: Array.from(overrides.entries())
+        events: deepClone(events),
+        busyBlocks: deepClone(busyBlocks),
+        places: deepClone(places),
+        overrides: Array.from(overrides.entries()),
+        todos: deepClone(todos),
+        scheduledEvents: deepClone(scheduledEvents),
+        learningData: deepClone(learningData)
     };
     const action = {
         description,
@@ -163,20 +271,23 @@ async function pushAction(description, undoFunc, redoFunc) {
 }
 
 async function restoreSnapshot(snapshot) {
-    // 1. Overwrite IndexedDB with the historical snapshot data
     await clearStore('events');
     for (let ev of snapshot.events) await addRecord('events', ev);
-    
     await clearStore('busyBlocks');
     for (let bb of snapshot.busyBlocks) await addRecord('busyBlocks', bb);
-    
     await clearStore('places');
     for (let pl of snapshot.places) await addRecord('places', pl);
-    
     await clearStore('overrides');
     for (let [k, v] of snapshot.overrides) await putRecord('overrides', v);
-    
-    // 2. Reload data from DB and refresh UI
+    await clearStore('todos');
+    for (let td of snapshot.todos) await addRecord('todos', td);
+    await clearStore('scheduledEvents');
+    for (let se of snapshot.scheduledEvents) await addRecord('scheduledEvents', se);
+    await clearStore('learningData');
+    // learningData is complex, but we can store as records; for simplicity, we'll just store the array
+    for (let ld of snapshot.learningData.eventDurations) await addRecord('learningData', ld);
+    for (let lt of snapshot.learningData.travelTimes) await addRecord('learningData', lt);
+    for (let lp of snapshot.learningData.preferences) await addRecord('learningData', lp);
     await fullRefresh();
 }
 
@@ -231,6 +342,10 @@ async function handleGpsPosition(position) {
     if (!position?.coords) return;
     const lat = position.coords.latitude;
     const lon = position.coords.longitude;
+    currentLocation.lat = lat;
+    currentLocation.lon = lon;
+    currentLocation.timestamp = new Date();
+
     let matched = null;
     for (let p of places) {
         if (p.lat && p.lon) {
@@ -240,6 +355,19 @@ async function handleGpsPosition(position) {
     }
     if (matched && matched.id !== currentPlaceId) {
         currentPlaceId = matched.id;
+        // Check sublocations
+        if (matched.sublocations) {
+            for (let sub of matched.sublocations) {
+                if (sub.lat && sub.lon) {
+                    const dist = getDistance(lat, lon, sub.lat, sub.lon);
+                    if (dist <= 30) {
+                        currentLocation.sublocationId = sub.id || sub.name;
+                        currentLocation.sublocationName = sub.name;
+                        break;
+                    }
+                }
+            }
+        }
         await loadData();
         renderCalendar();
         showToast(`📍 You are at ${matched.name}`);
@@ -255,6 +383,13 @@ async function handleGpsPosition(position) {
             showGPSModal(closest, closestDist, lat, lon);
         }
     }
+    // Record location history if userSettings.autoLearn
+    if (userSettings.autoLearn) {
+        await addRecord('locationHistory', {
+            lat, lon, placeId: matched?.id || null, sublocationId: currentLocation.sublocationId,
+            timestamp: new Date()
+        });
+    }
 }
 
 // ========== NUKE ANIMATION ==========
@@ -262,9 +397,7 @@ function showNukeAnimation() {
     const mainApp = document.getElementById('mainApp');
     if (!mainApp) return;
     mainApp.classList.add('nuke-flash');
-    setTimeout(() => {
-        mainApp.classList.remove('nuke-flash');
-    }, 500);
+    setTimeout(() => mainApp.classList.remove('nuke-flash'), 500);
 }
 
 // ========== MAIN INITIALIZATION ==========
@@ -272,46 +405,48 @@ window.addEventListener('DOMContentLoaded', async () => {
     await initDB();
     await loadData();
 
-    // Hide loading overlay
     const loadingOverlay = document.getElementById('loadingOverlay');
     if (loadingOverlay) loadingOverlay.style.display = 'none';
 
-    // Check if wizard has been completed
     const wizardComplete = await getSetting('wizardComplete');
     if (!wizardComplete) {
-        // Show the enhanced wizard (defined in modals.js)
-        if (typeof showWizard === 'function') {
-            showWizard();
-        } else {
-            // Fallback in case modals.js not loaded properly
+        if (typeof showWizard === 'function') showWizard();
+        else {
             console.warn('showWizard not available, using fallback');
             document.getElementById('wizardOverlay')?.classList.remove('hidden');
-            // Use old renderWizardStep? But we removed it, so fallback to main app
             await showMainApp();
         }
     } else {
-        // Wizard already done, show main app
         await showMainApp();
     }
 
-    // ========== UI EVENT LISTENERS ==========
+    // ========== UI EVENT LISTENERS (existing and new) ==========
     document.getElementById('undoBtn')?.addEventListener('click', undo);
     document.getElementById('redoBtn')?.addEventListener('click', redo);
     document.getElementById('todayBtn')?.addEventListener('click', () => { currentDate = new Date(); renderCalendar(); });
     document.getElementById('prevBtn')?.addEventListener('click', () => {
         if (currentView === 'week') currentDate.setDate(currentDate.getDate() - 7);
-        else currentDate.setMonth(currentDate.getMonth() - 1);
+        else if (currentView === 'month') currentDate.setMonth(currentDate.getMonth() - 1);
+        else if (currentView === 'day') currentDate.setDate(currentDate.getDate() - 1);
         renderCalendar();
     });
     document.getElementById('nextBtn')?.addEventListener('click', () => {
         if (currentView === 'week') currentDate.setDate(currentDate.getDate() + 7);
-        else currentDate.setMonth(currentDate.getMonth() + 1);
+        else if (currentView === 'month') currentDate.setMonth(currentDate.getMonth() + 1);
+        else if (currentView === 'day') currentDate.setDate(currentDate.getDate() + 1);
         renderCalendar();
     });
     document.getElementById('viewToggleBtn')?.addEventListener('click', () => {
-        currentView = currentView === 'week' ? 'month' : 'week';
+        const views = ['week', 'month', 'day'];
+        let idx = views.indexOf(currentView);
+        idx = (idx + 1) % views.length;
+        currentView = views[idx];
         const btn = document.getElementById('viewToggleBtn');
-        if (btn) btn.innerHTML = currentView === 'week' ? '<i class="fas fa-calendar-week"></i> Week' : '<i class="fas fa-calendar-alt"></i> Month';
+        if (btn) {
+            if (currentView === 'week') btn.innerHTML = '<i class="fas fa-calendar-week"></i> Week';
+            else if (currentView === 'month') btn.innerHTML = '<i class="fas fa-calendar-alt"></i> Month';
+            else if (currentView === 'day') btn.innerHTML = '<i class="fas fa-calendar-day"></i> Day';
+        }
         renderCalendar();
     });
     document.getElementById('fab')?.addEventListener('click', () => openEventModal());
@@ -320,45 +455,52 @@ window.addEventListener('DOMContentLoaded', async () => {
         else startGPS();
     });
 
-    // Wizard exit button (close wizard and go to app without completing)
+    // New button for to-do panel (if exists)
+    const todoPanelToggle = document.getElementById('todoPanelToggle');
+    if (todoPanelToggle) {
+        todoPanelToggle.addEventListener('click', () => {
+            const panel = document.getElementById('todoPanel');
+            if (panel) panel.classList.toggle('hidden');
+            if (typeof renderTodoList === 'function') renderTodoList();
+        });
+    }
+
+    // New button for event list
+    const eventListBtn = document.getElementById('eventListBtn');
+    if (eventListBtn) eventListBtn.addEventListener('click', showEventListModal);
+
+    // Wizard exit button
     const wizardExitBtn = document.getElementById('wizardExitBtn');
     if (wizardExitBtn) {
         wizardExitBtn.addEventListener('click', async () => {
-            // Mark wizard as complete to prevent showing again
             await setSetting('wizardComplete', true);
-            // Close wizard overlay
             const wizardOverlay = document.getElementById('wizardOverlay');
             if (wizardOverlay) wizardOverlay.classList.add('hidden');
-            // Show main app
             await showMainApp();
         });
     }
 
-    // ========== MODAL BACKDROP CLOSE ==========
+    // Modal backdrop close
     document.querySelectorAll('.modal-backdrop[data-closeable]').forEach(modal => {
         modal.addEventListener('click', (e) => {
             if (e.target === modal) {
-                if (modal.id === 'eventModal') {
-                    closeEventModalWithCheck();
-                } else {
-                    ModalManager.close(modal.id);
-                }
+                if (modal.id === 'eventModal') closeEventModalWithCheck();
+                else if (modal.id === 'todoModal') ModalManager.close('todoModal');
+                else ModalManager.close(modal.id);
             }
         });
     });
 
-    // ========== ESC KEY ==========
+    // ESC key
     document.addEventListener('keydown', (e) => {
         if (e.key === 'Escape') {
-            if (ModalManager.current === 'eventModal') {
-                closeEventModalWithCheck();
-            } else if (ModalManager.current) {
-                ModalManager.close(ModalManager.current);
-            }
+            if (ModalManager.current === 'eventModal') closeEventModalWithCheck();
+            else if (ModalManager.current === 'todoModal') ModalManager.close('todoModal');
+            else if (ModalManager.current) ModalManager.close(ModalManager.current);
         }
     });
 
-    // ========== NOTIFICATION BELL ==========
+    // Notification bell
     const notifBell = document.getElementById('notifBell');
     const notifPanel = document.getElementById('notifPanel');
     if (notifBell && notifPanel) {
@@ -370,9 +512,7 @@ window.addEventListener('DOMContentLoaded', async () => {
             renderNotifPanel();
         });
         document.addEventListener('click', (e) => {
-            if (!notifPanel.contains(e.target) && e.target !== notifBell) {
-                notifPanel.classList.add('hidden');
-            }
+            if (!notifPanel.contains(e.target) && e.target !== notifBell) notifPanel.classList.add('hidden');
         });
         document.getElementById('clearAllNotifs')?.addEventListener('click', () => {
             notificationLog.length = 0;
@@ -381,22 +521,19 @@ window.addEventListener('DOMContentLoaded', async () => {
         });
     }
 
-    // ========== EVENT REPEAT PANEL ==========
+    // Event repeat panel
     const eventRepeatSelect = document.getElementById('eventRepeat');
     if (eventRepeatSelect) {
         eventRepeatSelect.addEventListener('change', () => {
             const val = eventRepeatSelect.value;
-            const weeklyContainer = document.getElementById('weeklyDaysContainer');
-            const monthlyContainer = document.getElementById('monthlyDayContainer');
-            const repeatEnd = document.getElementById('eventRepeatEnd');
-            if (weeklyContainer) weeklyContainer.classList.toggle('hidden', val !== 'weekly');
-            if (monthlyContainer) monthlyContainer.classList.toggle('hidden', val !== 'monthly');
-            if (repeatEnd) repeatEnd.classList.toggle('hidden', val === 'none');
+            document.getElementById('weeklyDaysContainer')?.classList.toggle('hidden', val !== 'weekly');
+            document.getElementById('monthlyDayContainer')?.classList.toggle('hidden', val !== 'monthly');
+            document.getElementById('eventRepeatEnd')?.classList.toggle('hidden', val === 'none');
         });
         eventRepeatSelect.dispatchEvent(new Event('change'));
     }
 
-    // Weekly days container for event modal
+    // Weekly days container
     const weeklyContainer = document.getElementById('weeklyDaysContainer');
     if (weeklyContainer && weeklyContainer.children.length === 0) {
         const days = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
@@ -407,7 +544,7 @@ window.addEventListener('DOMContentLoaded', async () => {
         `).join('');
     }
 
-    // ========== DARK MODE TOGGLE ==========
+    // Dark mode toggle
     const darkToggle = document.getElementById('darkModeToggle');
     if (darkToggle) {
         darkToggle.addEventListener('change', async (e) => {
@@ -418,7 +555,7 @@ window.addEventListener('DOMContentLoaded', async () => {
         });
     }
 
-    // ========== DRAFT MANAGERS ==========
+    // Draft managers
     eventDraftManager = new FormDraft('eventModal', 'eventDraft', {
         priority: {
             read: (modal) => modal.querySelectorAll('#eventPriorityStars .fa-star.selected').length,
@@ -433,33 +570,25 @@ window.addEventListener('DOMContentLoaded', async () => {
             }
         },
         weeklyDays: {
-            read: (modal) => {
-                const checks = modal.querySelectorAll('#weeklyDaysContainer input:checked');
-                return Array.from(checks).map(cb => parseInt(cb.value));
-            },
+            read: (modal) => Array.from(modal.querySelectorAll('#weeklyDaysContainer input:checked')).map(cb => parseInt(cb.value)),
             write: (modal, value) => {
                 const checks = modal.querySelectorAll('#weeklyDaysContainer input');
                 checks.forEach(cb => cb.checked = value.includes(parseInt(cb.value)));
             }
         }
     });
-
     busyDraftManager = new FormDraft('busyModal', 'busyDraft', {
         weeklyDays: {
-            read: (modal) => {
-                const checkboxes = modal.querySelectorAll('#busyDaysCheckboxes input:checked');
-                return Array.from(checkboxes).map(cb => parseInt(cb.value));
-            },
+            read: (modal) => Array.from(modal.querySelectorAll('#busyDaysCheckboxes input:checked')).map(cb => parseInt(cb.value)),
             write: (modal, value) => {
-                const checkboxes = modal.querySelectorAll('#busyDaysCheckboxes input');
-                checkboxes.forEach(cb => {
-                    cb.checked = value.includes(parseInt(cb.value));
-                });
+                const checks = modal.querySelectorAll('#busyDaysCheckboxes input');
+                checks.forEach(cb => cb.checked = value.includes(parseInt(cb.value)));
             }
         }
     });
+    todoDraftManager = new FormDraft('todoModal', 'todoDraft', {});
 
-    // ========== SETTINGS MODAL ==========
+    // Settings modal
     const settingsModal = document.getElementById('settingsModal');
     const closeSettingsX = document.getElementById('closeSettingsModal');
     const settingsDone = document.getElementById('settingsDoneBtn');
@@ -469,30 +598,23 @@ window.addEventListener('DOMContentLoaded', async () => {
     }
     if (closeSettingsX) closeSettingsX.onclick = closeSettings;
     if (settingsDone) settingsDone.onclick = closeSettings;
-    if (settingsModal) {
-        settingsModal.addEventListener('click', (e) => {
-            if (e.target === settingsModal) closeSettings();
-        });
-    }
+    if (settingsModal) settingsModal.addEventListener('click', (e) => { if (e.target === settingsModal) closeSettings(); });
 
-    // Settings button opens and refreshes lists
     document.getElementById('settingsBtn')?.addEventListener('click', () => {
         if (settingsModal) {
-            // Reset to preferences tab
             const prefTab = Array.from(document.querySelectorAll('.settings-tab')).find(t => t.dataset.tab === 'preferences');
             if (prefTab) prefTab.click();
             ModalManager.open('settingsModal');
             renderPlacesList();
             renderBusyBlocksList();
+            renderTodosList();
         }
     });
 
-    // Settings tabs
     setupSettingsTabs();
 
     const nextBtn = document.getElementById('settingsNextBtn');
     let currentTab = 'preferences';
-
     function updateSettingsButtons() {
         if (currentTab === 'data') {
             nextBtn?.classList.add('hidden');
@@ -502,7 +624,6 @@ window.addEventListener('DOMContentLoaded', async () => {
             settingsDone?.classList.add('hidden');
         }
     }
-
     function switchTab(tabId) {
         const tabs = document.querySelectorAll('.settings-tab');
         tabs.forEach(tab => {
@@ -518,27 +639,31 @@ window.addEventListener('DOMContentLoaded', async () => {
             preferences: document.getElementById('settings-preferences'),
             scheduling: document.getElementById('settings-scheduling'),
             notifications: document.getElementById('settings-notifications'),
-            data: document.getElementById('settings-data')
+            data: document.getElementById('settings-data'),
+            places: document.getElementById('settings-places'),
+            busy: document.getElementById('settings-busy'),
+            todos: document.getElementById('settings-todos'),
+            learning: document.getElementById('settings-learning')
         };
         Object.values(panels).forEach(panel => panel?.classList.add('hidden'));
         if (panels[tabId]) panels[tabId].classList.remove('hidden');
         currentTab = tabId;
         updateSettingsButtons();
+        if (tabId === 'places') renderPlacesList();
+        if (tabId === 'busy') renderBusyBlocksList();
+        if (tabId === 'todos') renderTodosList();
+        if (tabId === 'learning') renderLearningDataPanel();
     }
-
     const tabHeaders = document.querySelectorAll('.settings-tab');
-    tabHeaders.forEach(tab => {
-        tab.addEventListener('click', () => switchTab(tab.dataset.tab));
-    });
-
-    const tabOrder = ['preferences', 'scheduling', 'notifications', 'data'];
+    tabHeaders.forEach(tab => tab.addEventListener('click', () => switchTab(tab.dataset.tab)));
+    const tabOrder = ['preferences', 'scheduling', 'notifications', 'places', 'busy', 'todos', 'learning', 'data'];
     nextBtn?.addEventListener('click', () => {
         const idx = tabOrder.indexOf(currentTab);
         if (idx < tabOrder.length - 1) switchTab(tabOrder[idx + 1]);
     });
     switchTab('preferences');
 
-    // ========== SAVE EVENT (with validation) ==========
+    // Save event
     const saveEventBtn = document.getElementById('saveEventBtn');
     if (saveEventBtn) {
         saveEventBtn.addEventListener('click', async () => {
@@ -546,17 +671,14 @@ window.addEventListener('DOMContentLoaded', async () => {
             saveEventBtn.disabled = true;
             if (spinner) spinner.classList.remove('hidden');
             try {
-                // Validate form before saving
                 if (!validateEventForm()) {
                     saveEventBtn.disabled = false;
                     if (spinner) spinner.classList.add('hidden');
                     return;
                 }
-
-                const eventName = document.getElementById('eventName').value.trim();
                 const eventData = {
                     id: editingEventId || undefined,
-                    name: eventName,
+                    name: document.getElementById('eventName').value.trim(),
                     openTime: document.getElementById('eventOpenTime').value,
                     closeTime: document.getElementById('eventCloseTime').value,
                     minStay: parseInt(document.getElementById('eventMinStay').value),
@@ -570,11 +692,11 @@ window.addEventListener('DOMContentLoaded', async () => {
                     color: document.getElementById('eventColor').value,
                     startDate: editingDateStr || formatDate(new Date()),
                     startTime: document.getElementById('eventOpenTime').value,
-                    endTime: fromMinutes(toMinutes(document.getElementById('eventOpenTime').value) + parseInt(document.getElementById('eventMinStay').value || 60)),
+                    endTime: fromMinutes(toMinutes(document.getElementById('eventOpenTime').value) + (parseInt(document.getElementById('eventMinStay').value) || 60)),
                     priority: document.querySelectorAll('#eventPriorityStars .fa-star.selected').length,
                     travelMins: 15,
                     weeklyDays: Array.from(document.querySelectorAll('#weeklyDaysContainer input:checked')).map(cb => parseInt(cb.value)),
-                    monthlyDay: parseInt(document.getElementById('monthlyDay').value)
+                    monthlyDay: parseInt(document.getElementById('monthlyDay').value) || 1
                 };
                 if (editingEventId && editingDateStr) {
                     const key = `${editingEventId}_${editingDateStr}`;
@@ -598,7 +720,15 @@ window.addEventListener('DOMContentLoaded', async () => {
         });
     }
 
-    // ========== SAVE BUSY (shared logic) ==========
+    // Save todo
+    const saveTodoBtn = document.getElementById('saveTodoBtn');
+    if (saveTodoBtn) {
+        saveTodoBtn.addEventListener('click', async () => {
+            await saveTodoModal();
+        });
+    }
+
+    // Save busy (existing)
     async function saveBusyBlockFromForm() {
         const busy = {
             description: document.getElementById('busyDescription').value,
@@ -622,15 +752,12 @@ window.addEventListener('DOMContentLoaded', async () => {
         await fullRefresh();
         return busy;
     }
-
     document.getElementById('saveBusyBtn')?.addEventListener('click', async () => {
         await saveBusyBlockFromForm();
         ModalManager.close('busyModal');
     });
-
     document.getElementById('saveAddAnotherBusyBtn')?.addEventListener('click', async () => {
         await saveBusyBlockFromForm();
-        // Reset form
         document.getElementById('busyDescription').value = '';
         document.getElementById('busyDate').value = '';
         document.getElementById('busyStartTime').value = '09:00';
@@ -640,7 +767,7 @@ window.addEventListener('DOMContentLoaded', async () => {
         showToast('Saved — add another', 'success');
     });
 
-    // ========== BUSY RECURRENCE CHANGE ==========
+    // Busy recurrence change
     document.getElementById('busyRecurrence')?.addEventListener('change', (e) => {
         const val = e.target.value;
         document.getElementById('busyDateSingle').classList.toggle('hidden', val !== 'once');
@@ -649,7 +776,7 @@ window.addEventListener('DOMContentLoaded', async () => {
     });
     document.getElementById('busyRecurrence')?.dispatchEvent(new Event('change'));
 
-    // ========== MODAL CANCEL/CLOSE ==========
+    // Modal cancel/close
     document.getElementById('cancelEventBtn')?.addEventListener('click', closeEventModalWithCheck);
     document.getElementById('closeEventModal')?.addEventListener('click', closeEventModalWithCheck);
     document.getElementById('closeBusyModal')?.addEventListener('click', () => ModalManager.close('busyModal'));
@@ -660,16 +787,18 @@ window.addEventListener('DOMContentLoaded', async () => {
         showToast('Draft cleared', 'success');
     });
 
-    // ========== SETTINGS LISTENERS ==========
+    // Settings listeners (existing + new)
     document.getElementById('restPolicySelect')?.addEventListener('change', async (e) => {
         restPolicy = e.target.value;
         await setSetting('restPolicy', restPolicy);
         syncSettingsToUI();
+        debouncedOptimizerRun();
     });
     document.getElementById('farMinutes')?.addEventListener('change', async (e) => {
         farMinutes = parseInt(e.target.value);
         await setSetting('farMinutes', farMinutes);
         syncSettingsToUI();
+        debouncedOptimizerRun();
     });
     document.getElementById('firstDayOfWeek')?.addEventListener('change', async (e) => {
         firstDayOfWeek = parseInt(e.target.value);
@@ -702,24 +831,94 @@ window.addEventListener('DOMContentLoaded', async () => {
         updateNotifications();
     });
 
-    // ========== ADVANCED OPTIONS TOGGLE ==========
-    const toggleAdvancedBtn = document.getElementById('toggleAdvancedBtn');
-    if (toggleAdvancedBtn) {
-        toggleAdvancedBtn.addEventListener('click', () => {
-            const adv = document.getElementById('advancedOptions');
-            if (adv) adv.classList.toggle('hidden');
+    // New settings listeners
+    const planningHorizonSelect = document.getElementById('planningHorizonWeeks');
+    if (planningHorizonSelect) {
+        planningHorizonSelect.addEventListener('change', async (e) => {
+            planningHorizonWeeks = parseInt(e.target.value);
+            userSettings.planningHorizonWeeks = planningHorizonWeeks;
+            await setSetting('userSettings', userSettings);
+            debouncedOptimizerRun();
+        });
+    }
+    const travelSpeedSelect = document.getElementById('travelSpeed');
+    if (travelSpeedSelect) {
+        travelSpeedSelect.addEventListener('change', async (e) => {
+            userSettings.travelSpeed = e.target.value;
+            await setSetting('userSettings', userSettings);
+            debouncedOptimizerRun();
+        });
+    }
+    const notificationSoundSelect = document.getElementById('notificationSound');
+    if (notificationSoundSelect) {
+        notificationSoundSelect.addEventListener('change', async (e) => {
+            userSettings.notificationSound = e.target.value;
+            await setSetting('userSettings', userSettings);
+        });
+    }
+    const quietStartInput = document.getElementById('quietHoursStart');
+    if (quietStartInput) {
+        quietStartInput.addEventListener('change', async (e) => {
+            userSettings.quietHoursStart = parseInt(e.target.value);
+            await setSetting('userSettings', userSettings);
+        });
+    }
+    const quietEndInput = document.getElementById('quietHoursEnd');
+    if (quietEndInput) {
+        quietEndInput.addEventListener('change', async (e) => {
+            userSettings.quietHoursEnd = parseInt(e.target.value);
+            await setSetting('userSettings', userSettings);
+        });
+    }
+    const showTodosCheck = document.getElementById('showTodosInCalendar');
+    if (showTodosCheck) {
+        showTodosCheck.addEventListener('change', async (e) => {
+            userSettings.showTodosInCalendar = e.target.checked;
+            await setSetting('userSettings', userSettings);
+            renderCalendar();
+        });
+    }
+    const autoLearnCheck = document.getElementById('autoLearn');
+    if (autoLearnCheck) {
+        autoLearnCheck.addEventListener('change', async (e) => {
+            userSettings.autoLearn = e.target.checked;
+            await setSetting('userSettings', userSettings);
+        });
+    }
+    const adaptBehaviorCheck = document.getElementById('adaptToUserBehavior');
+    if (adaptBehaviorCheck) {
+        adaptBehaviorCheck.addEventListener('change', async (e) => {
+            userSettings.adaptToUserBehavior = e.target.checked;
+            await setSetting('userSettings', userSettings);
         });
     }
 
-    // ========== EXPORT/IMPORT/RESET (with nuke animation) ==========
+    // Advanced options toggle
+    const toggleAdvancedBtn = document.getElementById('toggleAdvancedBtn');
+    if (toggleAdvancedBtn) {
+        toggleAdvancedBtn.addEventListener('click', () => {
+            document.getElementById('advancedOptions')?.classList.toggle('hidden');
+        });
+    }
+
+    // Export/Import/Reset
     document.getElementById('exportDataBtn')?.addEventListener('click', async () => {
-        const data = { events, busyBlocks, places, overrides: Array.from(overrides.values()) };
+        const data = {
+            events, busyBlocks, places, overrides: Array.from(overrides.values()),
+            todos, scheduledEvents, learningData, locationHistory, userFeedback,
+            settings: {
+                restPolicy, farMinutes, firstDayOfWeek, timeFormat, darkMode,
+                notifyDayBefore, notifyMinutesBefore, notifyTravelLead,
+                planningHorizonWeeks, userSettings
+            }
+        };
         const blob = new Blob([JSON.stringify(data)], { type: 'application/json' });
         const a = document.createElement('a');
         const date = new Date().toISOString().split('T')[0];
         a.href = URL.createObjectURL(blob);
-        a.download = `scheduler_backup_${date}.json`;
+        a.download = `scheduler_full_backup_${date}.json`;
         a.click();
+        URL.revokeObjectURL(a.href);
     });
     document.getElementById('importDataBtn')?.addEventListener('click', () => {
         const input = document.createElement('input');
@@ -732,17 +931,33 @@ window.addEventListener('DOMContentLoaded', async () => {
                 const text = await file.text();
                 const data = JSON.parse(text);
                 if (!data.events) throw new Error('Invalid format');
-                const summary = `File contains ${data.events.length} events, ${data.busyBlocks?.length || 0} busy blocks. Import will replace all current data. Continue?`;
+                const summary = `File contains ${data.events.length} events, ${data.busyBlocks?.length || 0} busy blocks, ${data.todos?.length || 0} to‑dos. Import will replace all current data. Continue?`;
                 if (confirm(summary)) {
-                    showNukeAnimation(); // Visual feedback before reset
-                    for (let s of ['events', 'busyBlocks', 'places', 'overrides']) {
-                        const store = await getStore(s, 'readwrite');
-                        await clearStore(s);
-                    }
+                    showNukeAnimation();
+                    await clearAllStores();
                     for (let ev of data.events) await addRecord('events', ev);
                     for (let bb of data.busyBlocks || []) await addRecord('busyBlocks', bb);
                     for (let pl of data.places || []) await addRecord('places', pl);
                     for (let ov of data.overrides || []) await putRecord('overrides', ov);
+                    for (let td of data.todos || []) await addRecord('todos', td);
+                    for (let se of data.scheduledEvents || []) await addRecord('scheduledEvents', se);
+                    for (let ld of data.learningData?.eventDurations || []) await addRecord('learningData', ld);
+                    for (let lt of data.learningData?.travelTimes || []) await addRecord('learningData', lt);
+                    for (let lp of data.learningData?.preferences || []) await addRecord('learningData', lp);
+                    for (let lh of data.locationHistory || []) await addRecord('locationHistory', lh);
+                    for (let uf of data.userFeedback || []) await addRecord('userFeedback', uf);
+                    if (data.settings) {
+                        await setSetting('restPolicy', data.settings.restPolicy);
+                        await setSetting('farMinutes', data.settings.farMinutes);
+                        await setSetting('firstDayOfWeek', data.settings.firstDayOfWeek);
+                        await setSetting('timeFormat', data.settings.timeFormat);
+                        await setSetting('darkMode', data.settings.darkMode);
+                        await setSetting('notifyDayBefore', data.settings.notifyDayBefore);
+                        await setSetting('notifyMinutesBefore', data.settings.notifyMinutesBefore);
+                        await setSetting('notifyTravelLead', data.settings.notifyTravelLead);
+                        await setSetting('planningHorizonWeeks', data.settings.planningHorizonWeeks);
+                        if (data.settings.userSettings) await setSetting('userSettings', data.settings.userSettings);
+                    }
                     await fullRefresh();
                     showToast('Import successful', 'success');
                 }
@@ -755,9 +970,8 @@ window.addEventListener('DOMContentLoaded', async () => {
     document.getElementById('resetAllDataBtn')?.addEventListener('click', async () => {
         const choice = confirm('Delete ALL data? This cannot be undone. Click OK to reset, Cancel to export first.');
         if (choice) {
-            showNukeAnimation(); // Visual flash before clearing
-            const stores = ['events', 'busyBlocks', 'places', 'overrides', 'settings', 'attendanceLog', 'drafts'];
-            for (let s of stores) { try { await clearStore(s); } catch(e) {} }
+            showNukeAnimation();
+            await clearAllStores();
             localStorage.clear();
             location.reload();
         } else {
@@ -765,35 +979,30 @@ window.addEventListener('DOMContentLoaded', async () => {
         }
     });
 
-    // ========== SWIPE NAVIGATION ==========
-    let touchStartX = 0;
-    let touchEndX = 0;
+    // Swipe navigation
+    let touchStartX = 0, touchEndX = 0;
     const calendarContainer = document.getElementById('calendarContainer');
     if (calendarContainer) {
-        calendarContainer.addEventListener('touchstart', (e) => {
-            touchStartX = e.changedTouches[0].screenX;
-        });
+        calendarContainer.addEventListener('touchstart', (e) => { touchStartX = e.changedTouches[0].screenX; });
         calendarContainer.addEventListener('touchend', (e) => {
             touchEndX = e.changedTouches[0].screenX;
             if (touchEndX < touchStartX - 50) {
                 if (currentView === 'week') currentDate.setDate(currentDate.getDate() + 7);
-                else currentDate.setMonth(currentDate.getMonth() + 1);
+                else if (currentView === 'month') currentDate.setMonth(currentDate.getMonth() + 1);
+                else if (currentView === 'day') currentDate.setDate(currentDate.getDate() + 1);
                 renderCalendar();
             } else if (touchEndX > touchStartX + 50) {
                 if (currentView === 'week') currentDate.setDate(currentDate.getDate() - 7);
-                else currentDate.setMonth(currentDate.getMonth() - 1);
+                else if (currentView === 'month') currentDate.setMonth(currentDate.getMonth() - 1);
+                else if (currentView === 'day') currentDate.setDate(currentDate.getDate() - 1);
                 renderCalendar();
             }
         });
     }
 
-    // ========== NOTIFICATION PERMISSION (fallback) ==========
-    // Only request if wizard is complete and permission still default
+    // Notification permission (only if wizard complete)
     const wizardCompleteFlag = await getSetting('wizardComplete');
     if (wizardCompleteFlag && Notification.permission === "default") {
-        // Delay a bit to not interrupt the user
-        setTimeout(() => {
-            Notification.requestPermission();
-        }, 3000);
+        setTimeout(() => Notification.requestPermission(), 3000);
     }
 });
