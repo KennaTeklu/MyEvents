@@ -9,6 +9,35 @@
 // main.js - Main initialization and orchestration (enhanced with event stream)
 // Must be loaded last, after all other scripts
 
+// ========== SAFETY FALLBACKS ==========
+// Ensure ModalManager exists (in case modals.js failed)
+if (typeof ModalManager === 'undefined') {
+    window.ModalManager = {
+        current: null,
+        open: function(modalId) {
+            const modal = document.getElementById(modalId);
+            if (modal) modal.classList.remove('hidden');
+            this.current = modalId;
+        },
+        close: function(modalId) {
+            const modal = document.getElementById(modalId || this.current);
+            if (modal) modal.classList.add('hidden');
+            if (!modalId || modalId === this.current) this.current = null;
+        }
+    };
+}
+
+// Ensure openEventModal exists (in case modals.js failed)
+if (typeof openEventModal === 'undefined') {
+    window.openEventModal = function(event, dateStr) {
+        console.warn('openEventModal not yet defined, retrying in 100ms...');
+        setTimeout(() => {
+            if (typeof openEventModal !== 'undefined') openEventModal(event, dateStr);
+            else alert('Modal system not loaded. Please refresh the page.');
+        }, 100);
+    };
+}
+
 // ========== HELPER FUNCTIONS ==========
 async function fullRefresh() {
     await loadData();
@@ -424,15 +453,22 @@ window.addEventListener('DOMContentLoaded', async () => {
         }
         renderCalendar();
     });
-    const fabButton = document.getElementById('fab');
-    if (fabButton) {
-        fabButton.addEventListener('click', (e) => {
-            e.stopPropagation();
-            console.log('FAB clicked, opening event modal');
-            if (typeof openEventModal === 'function') openEventModal();
-            else showToast('Cannot open event modal', 'error');
-        });
-    }
+const fabButton = document.getElementById('fab');
+if (fabButton) {
+    // Remove any existing listeners to avoid duplicates
+    const newFab = fabButton.cloneNode(true);
+    fabButton.parentNode.replaceChild(newFab, fabButton);
+    newFab.addEventListener('click', (e) => {
+        e.stopPropagation();
+        console.log('FAB clicked');
+        if (typeof openEventModal === 'function') {
+            openEventModal();
+        } else {
+            console.error('openEventModal not defined');
+            showToast('Cannot open event modal - please refresh', 'error');
+        }
+    });
+}
     document.getElementById('gpsUpdateBtn')?.addEventListener('click', () => {
         if (gpsWatchId) stopGPS();
         else startGPS();
