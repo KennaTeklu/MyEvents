@@ -1,6 +1,6 @@
 /*
  * Smart Scheduler – Intelligent Time Manager
- * Copyright (c) 2025 Kenna Teklu. All rights reserved.
+ * Copyright (c) 2026 Kenna Teklu. All rights reserved.
  *
  * This software is proprietary and confidential.
  * Unauthorized copying, distribution, or use of this file, via any medium,
@@ -1119,25 +1119,41 @@ function showBottomSheet(eventId, dateStr) {
             showUndoToast('Skip', { eventId, dateStr, type: 'nogo' });
         };
     }
-    if (attendedBtn) {
-        attendedBtn.innerHTML = isAttended ? '<i class="fas fa-check-double"></i> Attended' : '<i class="fas fa-check"></i> Mark Attended';
-        attendedBtn.onclick = async () => {
-            if (!isAttended) {
-                const plannedMinutes = (toMinutes(ev.endTime) - toMinutes(ev.startTime));
-                const actualMinutes = prompt(`How many minutes did you actually spend? (Planned: ${plannedMinutes} min)`, plannedMinutes);
-                const actual = parseInt(actualMinutes);
-                if (!isNaN(actual) && actual !== plannedMinutes) {
-                    await UserLearning.recordEventDuration(eventId, dateStr, actual);
+if (attendedBtn) {
+    attendedBtn.innerHTML = isAttended ? '<i class="fas fa-check-double"></i> Attended' : '<i class="fas fa-check"></i> Mark Attended';
+    attendedBtn.onclick = async () => {
+        if (!isAttended) {
+            const plannedMinutes = (toMinutes(ev.endTime) - toMinutes(ev.startTime));
+            let actualMinutes = null;
+            
+            // Show prompt for actual duration (if UserLearning exists and auto-learn is enabled)
+            if (typeof UserLearning !== 'undefined' && userSettings.autoLearn) {
+                const userInput = prompt(`How many minutes did you actually spend? (Planned: ${plannedMinutes} min)`, plannedMinutes);
+                if (userInput !== null) {
+                    const parsed = parseInt(userInput);
+                    if (!isNaN(parsed) && parsed > 0) {
+                        actualMinutes = parsed;
+                    }
                 }
-                await addRecord('attendanceLog', { eventId, dateStr, timestamp: new Date() });
-                showToast('Marked as attended', 'success');
-            } else {
-                showToast('Already marked as attended', 'info');
             }
-            closeBottomSheet();
-            await fullRefresh();
-        };
-    }
+            
+            // Record attendance
+            await addRecord('attendanceLog', { eventId, dateStr, timestamp: new Date() });
+            
+            // Record actual duration if provided
+            if (actualMinutes !== null && typeof UserLearning !== 'undefined') {
+                await UserLearning.recordEventDuration(eventId, dateStr, actualMinutes);
+                showToast(`Marked as attended (actual: ${actualMinutes} min)`, 'success');
+            } else {
+                showToast('Marked as attended', 'success');
+            }
+        } else {
+            showToast('Already marked as attended', 'info');
+        }
+        closeBottomSheet();
+        await fullRefresh();
+    };
+}
     if (lockBtn) {
         lockBtn.innerHTML = isLocked ? '<i class="fas fa-unlock"></i> Unlock' : '<i class="fas fa-lock"></i> Don\'t move';
         lockBtn.onclick = async () => {
