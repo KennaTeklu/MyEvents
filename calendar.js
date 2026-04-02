@@ -632,13 +632,21 @@ function attachCalendarEvents() {
         });
     });
 
-    container.querySelectorAll('.busy-overlay').forEach(overlay => {
-        overlay.addEventListener('click', (e) => {
-            e.stopPropagation();
-            const cell = overlay.closest('.day-cell');
-            if (cell) openBusyModal(null, cell.dataset.date);
-        });
+container.querySelectorAll('.busy-overlay').forEach(overlay => {
+    overlay.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const cell = overlay.closest('.day-cell');
+        if (!cell) return;
+        const dateStr = cell.dataset.date;
+        if (!dateStr) return;
+        if (typeof openBusyModal === 'function') {
+            openBusyModal(null, dateStr);
+        } else {
+            console.error('openBusyModal is not defined');
+            showToast('Cannot edit busy block', 'error');
+        }
     });
+});
 
     let pressTimer = null;
     container.addEventListener('touchstart', (e) => {

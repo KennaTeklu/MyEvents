@@ -75,13 +75,15 @@ window.drop_handler = async function(ev) {
 let optimizerDebounceTimer = null;
 let lastOptimizerRunTime = 0;
 const OPTIMIZER_DEBOUNCE_MS = 2000;
-const OPTIMIZER_MIN_INTERVAL_MS = 5000; // prevent runs more often than 5 seconds
+const OPTIMIZER_MIN_INTERVAL_MS = 10000;
 
 function debouncedOptimizerRun() {
-    // Don't run if it's been too soon
     const now = Date.now();
-    if (now - lastOptimizerRunTime < OPTIMIZER_MIN_INTERVAL_MS) return;
-    
+    // Prevent too-frequent runs (minimum interval)
+    if (now - lastOptimizerRunTime < OPTIMIZER_MIN_INTERVAL_MS) {
+        console.log('Optimizer skipped (min interval)');
+        return;
+    }
     if (optimizerDebounceTimer) clearTimeout(optimizerDebounceTimer);
     optimizerDebounceTimer = setTimeout(async () => {
         if (typeof runOptimizer === 'function') {
@@ -95,36 +97,43 @@ function debouncedOptimizerRun() {
 
 async function loadData() {
     try {
-        // Existing stores
-        events = await getAll('events');
-        busyBlocks = await getAll('busyBlocks');
-        places = await getAll('places');
-        const overridesList = await getAll('overrides');
+        // Ensure DB is initialized first
+        if (!dbReady) await initDB();
+        
+        // Load all stores with error handling per store
+        events = await getAll(STORES.EVENTS).catch(e => { console.error('Failed to load events:', e); return []; });
+        busyBlocks = await getAll(STORES.BUSY_BLOCKS).catch(e => { console.error('Failed to load busyBlocks:', e); return []; });
+        places = await getAll(STORES.PLACES).catch(e => { console.error('Failed to load places:', e); return []; });
+        
+        const overridesList = await getAll(STORES.OVERRIDES).catch(e => { console.error('Failed to load overrides:', e); return []; });
         overrides.clear();
         for (let ov of overridesList) overrides.set(ov.compositeKey, ov);
-        attendanceLog = await getAll('attendanceLog');
-
-        // New stores
-        todos = await getAll('todos');
-        scheduledEvents = await getAll('scheduledEvents');
-        const allLearning = await getAll('learningData');
+        
+        attendanceLog = await getAll(STORES.ATTENDANCE_LOG).catch(e => { console.error('Failed to load attendanceLog:', e); return []; });
+        
+        // Load new stores
+        todos = await getAll(STORES.TODOS).catch(e => { console.error('Failed to load todos:', e); return []; });
+        scheduledEvents = await getAll(STORES.SCHEDULED_EVENTS).catch(e => { console.error('Failed to load scheduledEvents:', e); return []; });
+        
+        const allLearning = await getAll(STORES.LEARNING_DATA).catch(e => { console.error('Failed to load learningData:', e); return []; });
         learningData = {
             eventDurations: allLearning.filter(l => l.type === 'duration'),
             travelTimes: allLearning.filter(l => l.type === 'travel'),
             preferences: allLearning.filter(l => l.type === 'preference'),
             preferredTimeSlots: {}
         };
-        // Populate preferredTimeSlots from learning data
+        // Populate preferredTimeSlots
         const preferred = allLearning.filter(l => l.type === 'preferredTime');
         for (const p of preferred) {
             if (!learningData.preferredTimeSlots[p.eventId]) learningData.preferredTimeSlots[p.eventId] = {};
             const key = `${p.hour}:${p.minute}`;
             learningData.preferredTimeSlots[p.eventId][key] = (learningData.preferredTimeSlots[p.eventId][key] || 0) + (p.weight || 1);
         }
-        locationHistory = await getAll('locationHistory');
-        userFeedback = await getAll('userFeedback');
+        
+        locationHistory = await getAll(STORES.LOCATION_HISTORY).catch(e => { console.error('Failed to load locationHistory:', e); return []; });
+        userFeedback = await getAll(STORES.USER_FEEDBACK).catch(e => { console.error('Failed to load userFeedback:', e); return []; });
 
-        // Load settings (existing)
+        // Load settings with correct fallback
         restPolicy = (await getSetting('restPolicy')) ?? 'home';
         farMinutes = (await getSetting('farMinutes')) ?? 10;
         firstDayOfWeek = (await getSetting('firstDayOfWeek')) ?? 1;
@@ -134,24 +143,24 @@ async function loadData() {
         notifyMinutesBefore = (await getSetting('notifyMinutesBefore')) ?? 60;
         notifyTravelLead = (await getSetting('notifyTravelLead')) ?? 5;
 
-        // Load new settings (userSettings object)
+        // Load userSettings object
         const storedUserSettings = await getSetting('userSettings');
         if (storedUserSettings) {
             Object.assign(userSettings, storedUserSettings);
         } else {
             // Fallback to defaults defined in state.js
         }
-
-        // Sync planningHorizonWeeks from userSettings to global for convenience
         planningHorizonWeeks = userSettings.planningHorizonWeeks ?? 4;
 
+        // Apply dark mode
         if (darkMode) document.documentElement.classList.add('dark');
         else document.documentElement.classList.remove('dark');
 
-        // Ensure at least one place
+        // Ensure at least one place exists
         if (!places.length) {
-            places.push({ id: 1, name: 'Home', lat: null, lon: null, radius: 30, travelToEvent: {} });
-            await putRecord('places', places[0]);
+            const defaultPlace = { name: 'Home', lat: null, lon: null, radius: 30, travelToEvent: {} };
+            const id = await addRecord(STORES.PLACES, defaultPlace);
+            places.push({ ...defaultPlace, id });
         }
         currentPlaceId = places[0]?.id || 1;
         const placeDisplay = document.getElementById('currentPlaceDisplay');
@@ -159,25 +168,15 @@ async function loadData() {
             placeDisplay.innerText = `📍 ${places.find(p => p.id === currentPlaceId)?.name || 'Home'}`;
         }
 
-        // Update currentLocation with the latest coordinates if we have GPS fix
-        if (gpsWatchId) {
-            // GPS already running, location will be updated by handleGpsPosition
-        } else if (navigator.geolocation) {
-            // Get one-time position to set currentLocation
-            navigator.geolocation.getCurrentPosition(pos => {
-                currentLocation.lat = pos.coords.latitude;
-                currentLocation.lon = pos.coords.longitude;
-                currentLocation.timestamp = new Date();
-                // Optionally, find nearest place and set placeId/sublocationId
-                updateCurrentPlaceFromLocation();
-            }, () => {});
-        }
-
         syncSettingsToUI();
-        console.log('loadData completed successfully');
+        console.log('loadData completed successfully. Events:', events.length, 'BusyBlocks:', busyBlocks.length, 'Places:', places.length);
+        
+        // Return true to indicate successful load
+        return true;
     } catch (error) {
         console.error('loadData failed:', error);
         showToast('Failed to load data. Please refresh the page.', 'error');
+        return false;
     }
 }
 
@@ -296,6 +295,7 @@ function getTravelTime(eventId, fromPlaceId = currentPlaceId) {
 }
 
 // ========== OPTIMIZER (Constraint Solver) ==========
+// ========== OPTIMIZER (Constraint Solver) ==========
 async function runOptimizer() {
     // Prevent concurrent runs
     if (optimizerLock) {
@@ -307,7 +307,9 @@ async function runOptimizer() {
     try {
         // Use the scheduler module if available
         if (typeof Scheduler !== 'undefined' && Scheduler.run) {
-            await Scheduler.run();   // Scheduler.run() already shows its own success toast
+            showToast('Optimizing your schedule...', 'info');
+            await Scheduler.run();
+            showToast('Schedule optimized!', 'success');
         } else {
             console.warn('Scheduler module not loaded');
             showToast('Optimizer not available. Please refresh the page.', 'error');
@@ -318,8 +320,9 @@ async function runOptimizer() {
     } finally {
         optimizerLock = false;
         lastOptimizerRun = new Date();
-        // Just refresh the calendar without triggering another optimizer
-        if (typeof renderCalendar === 'function') renderCalendar();
+        // Refresh calendar to show the updated schedule
+        if (typeof fullRefresh === 'function') fullRefresh();
+        else if (typeof renderCalendar === 'function') renderCalendar();
     }
 }
 
@@ -411,7 +414,90 @@ function showNukeAnimation() {
     mainApp.classList.add('nuke-flash');
     setTimeout(() => mainApp.classList.remove('nuke-flash'), 500);
 }
+// ========== DRAG AND DROP HANDLERS ==========
+window.dragstart_handler = function(ev) {
+    const block = ev.target.closest('.event-block');
+    if (!block) {
+        ev.preventDefault();
+        return;
+    }
+    const eventId = block.dataset.id;
+    const dateStr = block.dataset.date;
+    if (!eventId || !dateStr) {
+        ev.preventDefault();
+        return;
+    }
+    ev.dataTransfer.setData("text/plain", JSON.stringify({
+        eventId: parseInt(eventId),
+        dateStr: dateStr
+    }));
+    ev.dataTransfer.effectAllowed = "move";
+};
 
+window.dragover_handler = function(ev) {
+    ev.preventDefault();
+    ev.dataTransfer.dropEffect = "move";
+};
+
+window.drop_handler = async function(ev) {
+    ev.preventDefault();
+    const targetCell = ev.target.closest('.day-cell');
+    if (!targetCell) return;
+    let data;
+    try {
+        data = JSON.parse(ev.dataTransfer.getData("text/plain"));
+    } catch (e) {
+        return;
+    }
+    const eventId = data.eventId;
+    const oldDateStr = data.dateStr;
+    const targetDateStr = targetCell.dataset.date;
+    if (!eventId || !oldDateStr || !targetDateStr) return;
+    if (oldDateStr === targetDateStr) return;
+
+    const key = `${eventId}_${oldDateStr}`;
+    const newKey = `${eventId}_${targetDateStr}`;
+    
+    // Check if there is already an override for the new date
+    if (overrides.has(newKey)) {
+        showToast('Target date already has an override for this event', 'warning');
+        return;
+    }
+    
+    // Create a new override (exception) for the target date
+    const originalEvent = events.find(e => e.id === eventId);
+    if (!originalEvent) {
+        showToast('Event not found', 'error');
+        return;
+    }
+    
+    const overrideEvent = {
+        ...originalEvent,
+        startDate: targetDateStr
+    };
+    
+    const override = {
+        compositeKey: newKey,
+        eventId: eventId,
+        dateStr: targetDateStr,
+        type: 'exception',
+        newEvent: overrideEvent
+    };
+    
+    // Remove old override if exists
+    if (overrides.has(key)) {
+        await deleteRecord(STORES.OVERRIDES, key);
+        overrides.delete(key);
+    }
+    
+    // Add new override
+    await putRecord(STORES.OVERRIDES, override);
+    overrides.set(newKey, override);
+    
+    // Refresh the UI
+    await fullRefresh();
+    showToast(`Moved event to ${targetDateStr}`);
+};
 // ========== MAIN INITIALIZATION ==========
 window.addEventListener('DOMContentLoaded', async () => {
     await initDB();
@@ -461,7 +547,19 @@ window.addEventListener('DOMContentLoaded', async () => {
         }
         renderCalendar();
     });
-    document.getElementById('fab')?.addEventListener('click', () => openEventModal());
+    const fabButton = document.getElementById('fab');
+    if (fabButton) {
+        fabButton.addEventListener('click', (e) => {
+            e.stopPropagation();
+            console.log('FAB clicked, opening event modal');
+            if (typeof openEventModal === 'function') {
+                openEventModal();
+            } else {
+                console.error('openEventModal is not defined');
+                showToast('Cannot open event modal', 'error');
+            }
+        });
+    }
     document.getElementById('gpsUpdateBtn')?.addEventListener('click', () => {
         if (gpsWatchId) stopGPS();
         else startGPS();
@@ -707,25 +805,90 @@ window.addEventListener('DOMContentLoaded', async () => {
                     endTime: fromMinutes(toMinutes(document.getElementById('eventOpenTime').value) + (parseInt(document.getElementById('eventMinStay').value) || 60)),
                     priority: document.querySelectorAll('#eventPriorityStars .fa-star.selected').length,
                     travelMins: 15,
-                    weeklyDays: Array.from(document.querySelectorAll('#weeklyDaysContainer input:checked')).map(cb => parseInt(cb.value)),
+                    // Ensure weeklyDays is an array of numbers (0-6) based on the selected checkboxes
+                    weeklyDays: (() => {
+                        const container = document.getElementById('weeklyDaysContainer');
+                        if (!container) return [];
+                        const checked = container.querySelectorAll('input[type="checkbox"]:checked');
+                        return Array.from(checked).map(cb => parseInt(cb.value, 10));
+                    })(),
                     monthlyDay: parseInt(document.getElementById('monthlyDay').value) || 1,
                     placeId: document.getElementById('eventPlaceId').value || null
                 };
-                if (editingEventId && editingDateStr) {
-                    const key = `${editingEventId}_${editingDateStr}`;
-                    await putRecord('overrides', { compositeKey: key, eventId: editingEventId, dateStr: editingDateStr, type: 'exception', newEvent: eventData });
-                    showToast(`Updated occurrence of ${eventData.name}`);
-                    await pushAction(`Override occurrence of ${eventData.name}`, async () => {}, async () => {});
-                } else if (editingEventId) {
-                    await putRecord('events', eventData);
-                    await pushAction(`Edit event ${eventData.name}`, async () => {}, async () => {});
-                } else {
-                    await addRecord('events', eventData);
-                    await pushAction(`Add event ${eventData.name}`, async () => {}, async () => {});
-                }
-                if (eventDraftManager) await eventDraftManager.clearDraft();
-                await fullRefresh();
-                ModalManager.close('eventModal');
+                // Check for conflicts before saving
+const eventDateStr = editingDateStr || eventData.startDate;
+const dayBusy = getBusyBlocksForDate(eventDateStr);
+const dayEvents = getEventsForDate(eventDateStr);
+const newStartMin = toMinutes(eventData.startTime);
+const newEndMin = toMinutes(eventData.endTime);
+let hasConflict = false;
+let conflictMessage = '';
+
+// Check against busy blocks
+for (const busy of dayBusy) {
+    const busyStart = toMinutes(busy.startTime);
+    const busyEnd = toMinutes(busy.endTime);
+    if (newStartMin < busyEnd && newEndMin > busyStart) {
+        hasConflict = true;
+        conflictMessage = `This event conflicts with "${busy.description || 'busy block'}" (${busy.startTime}–${busy.endTime}).`;
+        break;
+    }
+}
+
+// Check against other events (only if not editing the same event)
+if (!hasConflict) {
+    for (const ev of dayEvents) {
+        if (editingEventId && ev.id === editingEventId) continue;
+        const evStart = toMinutes(ev.startTime);
+        const evEnd = toMinutes(ev.endTime);
+        if (newStartMin < evEnd && newEndMin > evStart) {
+            hasConflict = true;
+            conflictMessage = `This event conflicts with "${ev.name}" (${ev.startTime}–${ev.endTime}).`;
+            break;
+        }
+    }
+}
+
+// If conflict detected, show modal and let user decide
+if (hasConflict) {
+    const userConfirmed = await new Promise((resolve) => {
+        // Create a simple confirm modal (or reuse conflict modal)
+        if (typeof showConflictModal === 'function') {
+            showConflictModal({
+                message: conflictMessage,
+                onResolve: () => resolve(true),
+                onIgnore: () => resolve(false)
+            });
+        } else {
+            // Fallback to browser confirm
+            const result = confirm(conflictMessage + '\n\nSave anyway?');
+            resolve(result);
+        }
+    });
+    
+    if (!userConfirmed) {
+        // User chose not to save
+        if (eventDraftManager) await eventDraftManager.saveDraft();
+        return;
+    }
+}
+
+// Proceed with saving
+if (editingEventId && editingDateStr) {
+    const key = `${editingEventId}_${editingDateStr}`;
+    await putRecord('overrides', { compositeKey: key, eventId: editingEventId, dateStr: editingDateStr, type: 'exception', newEvent: eventData });
+    showToast(`Updated occurrence of ${eventData.name}`);
+    await pushAction(`Override occurrence of ${eventData.name}`, async () => {}, async () => {});
+} else if (editingEventId) {
+    await putRecord('events', eventData);
+    await pushAction(`Edit event ${eventData.name}`, async () => {}, async () => {});
+} else {
+    await addRecord('events', eventData);
+    await pushAction(`Add event ${eventData.name}`, async () => {}, async () => {});
+}
+if (eventDraftManager) await eventDraftManager.clearDraft();
+await fullRefresh();
+ModalManager.close('eventModal');
             } finally {
                 saveEventBtn.disabled = false;
                 if (spinner) spinner.classList.add('hidden');
@@ -789,16 +952,46 @@ window.addEventListener('DOMContentLoaded', async () => {
     });
     document.getElementById('busyRecurrence')?.dispatchEvent(new Event('change'));
 
-    // Modal cancel/close
-    document.getElementById('cancelEventBtn')?.addEventListener('click', closeEventModalWithCheck);
-    document.getElementById('closeEventModal')?.addEventListener('click', closeEventModalWithCheck);
-    document.getElementById('closeBusyModal')?.addEventListener('click', () => ModalManager.close('busyModal'));
-    document.getElementById('cancelBusyBtn')?.addEventListener('click', () => ModalManager.close('busyModal'));
-    document.getElementById('clearDraftBtn')?.addEventListener('click', async () => {
+// ========== MODAL CANCEL/CLOSE ==========
+const cancelEventBtn = document.getElementById('cancelEventBtn');
+const closeEventModalBtn = document.getElementById('closeEventModal');
+if (cancelEventBtn) {
+    cancelEventBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        closeEventModalWithCheck();
+    });
+}
+if (closeEventModalBtn) {
+    closeEventModalBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        closeEventModalWithCheck();
+    });
+}
+
+const closeBusyModalBtn = document.getElementById('closeBusyModal');
+const cancelBusyBtn = document.getElementById('cancelBusyBtn');
+if (closeBusyModalBtn) {
+    closeBusyModalBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        ModalManager.close('busyModal');
+    });
+}
+if (cancelBusyBtn) {
+    cancelBusyBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        ModalManager.close('busyModal');
+    });
+}
+
+const clearDraftBtn = document.getElementById('clearDraftBtn');
+if (clearDraftBtn) {
+    clearDraftBtn.addEventListener('click', async (e) => {
+        e.preventDefault();
         if (eventDraftManager) await eventDraftManager.clearDraft();
         document.getElementById('draftBanner')?.classList.add('hidden');
         showToast('Draft cleared', 'success');
     });
+}
 
     // Settings listeners (existing + new)
     document.getElementById('restPolicySelect')?.addEventListener('change', async (e) => {

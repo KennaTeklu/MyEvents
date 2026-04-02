@@ -16,38 +16,53 @@ async function updateLiveJSON() {
     if (liveJSONUpdatePending) return;
     liveJSONUpdatePending = true;
     
-    requestAnimationFrame(async () => {
+    // Use setTimeout instead of requestAnimationFrame to ensure DOM is ready
+    setTimeout(async () => {
         try {
-            const container = document.getElementById('liveJSONContainer');
+            const container = document.getElementById('jsonVisualizerContainer');
             if (!container) {
                 liveJSONUpdatePending = false;
                 return;
             }
             
+            // Build a complete state representation
             const stateForExport = {
-                events: events,
-                busyBlocks: busyBlocks,
-                places: places,
-                overrides: Array.from(overrides.values()),
-                todos: todos,
-                scheduledEvents: scheduledEvents,
-                learningData: learningData,
-                locationHistory: locationHistory,
-                userFeedback: userFeedback
+                events: events || [],
+                busyBlocks: busyBlocks || [],
+                places: places || [],
+                overrides: Array.from(overrides?.values() || []),
+                todos: todos || [],
+                scheduledEvents: scheduledEvents || [],
+                learningData: {
+                    eventDurations: learningData?.eventDurations || [],
+                    travelTimes: learningData?.travelTimes || [],
+                    preferences: learningData?.preferences || []
+                }
             };
             
             const jsonStr = JSON.stringify(stateForExport, null, 2);
-            const pre = container.querySelector('pre');
-            if (pre) pre.textContent = jsonStr;
+            const pre = document.getElementById('jsonVisualizerPre');
+            if (pre) {
+                pre.textContent = jsonStr;
+            } else {
+                // Fallback: try to find pre inside container
+                const preInside = container.querySelector('pre');
+                if (preInside) preInside.textContent = jsonStr;
+            }
         } catch (err) {
             console.error('Failed to update live JSON:', err);
+            const pre = document.getElementById('jsonVisualizerPre');
+            if (pre) pre.textContent = 'Error: ' + err.message;
         } finally {
             liveJSONUpdatePending = false;
         }
-    });
+    }, 10);
 }
 
-function refreshLiveJSON() { updateLiveJSON(); }
+function refreshLiveJSON() {
+    liveJSONUpdatePending = false; // reset flag to force update
+    updateLiveJSON();
+}
 
 async function copyLiveJSON() {
     const container = document.getElementById('liveJSONContainer');
