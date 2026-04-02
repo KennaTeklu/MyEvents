@@ -6,7 +6,7 @@
  * Unauthorized copying, distribution, or use of this file, via any medium,
  * is strictly prohibited. See the LICENSE file for full terms.
  */
-// main.js - Main initialization and orchestration (enhanced)
+// main.js - Main initialization and orchestration (enhanced with event stream)
 // Must be loaded last, after all other scripts
 
 // ========== HELPER FUNCTIONS ==========
@@ -16,91 +16,14 @@ async function fullRefresh() {
     await renderCalendar();
     updateNotifications();
     if (typeof updateLiveJSON === 'function') updateLiveJSON();
-    // Trigger optimizer only if auto-optimize is enabled and not already running
-    if (userSettings.autoOptimizeOnChange !== false && !optimizerLock) {
-        debouncedOptimizerRun();
-    }
-}
-window.dragstart_handler = function(ev) {
-    const block = ev.target.closest('.event-block');
-    if (!block) {
-        ev.preventDefault();
-        return;
-    }
-    ev.dataTransfer.setData("text/plain", JSON.stringify({
-        eventId: block.dataset.id,
-        dateStr: block.dataset.date
-    }));
-    ev.dataTransfer.effectAllowed = "move";
-};
-
-window.dragover_handler = function(ev) {
-    ev.preventDefault();
-    ev.dataTransfer.dropEffect = "move";
-};
-
-window.drop_handler = async function(ev) {
-    ev.preventDefault();
-    const targetCell = ev.target.closest('.day-cell');
-    if (!targetCell) return;
-    let data;
-    try {
-        data = JSON.parse(ev.dataTransfer.getData("text/plain"));
-    } catch (e) {
-        return;
-    }
-    const eventId = parseInt(data.eventId);
-    const oldDateStr = data.dateStr;
-    const targetDateStr = targetCell.dataset.date;
-    if (!eventId || !oldDateStr || !targetDateStr) return;
-    if (oldDateStr === targetDateStr) return;
-
-    const key = `${eventId}_${oldDateStr}`;
-    const override = {
-        compositeKey: `${eventId}_${targetDateStr}`,
-        eventId,
-        dateStr: targetDateStr,
-        type: 'exception',
-        newEvent: { startDate: targetDateStr }
-    };
-    await deleteRecord(STORES.OVERRIDES, key);
-    overrides.delete(key);
-    await putRecord(STORES.OVERRIDES, override);
-    overrides.set(override.compositeKey, override);
-    await fullRefresh();
-    showToast(`Moved event to ${targetDateStr}`);
-};
-
-// Debounced optimizer call
-let optimizerDebounceTimer = null;
-let lastOptimizerRunTime = 0;
-const OPTIMIZER_DEBOUNCE_MS = 2000;
-const OPTIMIZER_MIN_INTERVAL_MS = 10000;
- 
-function debouncedOptimizerRun() {
-    const now = Date.now();
-    // Prevent too-frequent runs (minimum interval)
-    if (now - lastOptimizerRunTime < OPTIMIZER_MIN_INTERVAL_MS) {
-        console.log('Optimizer skipped (min interval)');
-        return;
-    }
-    if (optimizerDebounceTimer) clearTimeout(optimizerDebounceTimer);
-    optimizerDebounceTimer = setTimeout(async () => {
-        if (typeof runOptimizer === 'function') {
-            lastOptimizerRunTime = Date.now();
-            await runOptimizer();
-        } else {
-            console.warn('Optimizer not available');
-        }
-    }, OPTIMIZER_DEBOUNCE_MS);
+    // Do NOT call debouncedOptimizerRun here – event stream handles reactivity
 }
 
+// ========== LOAD DATA ==========
 async function loadData() {
     try {
-        // Ensure DB is initialized first
         if (!dbReady) await initDB();
         
-        // Load all stores with error handling per store
         events = await getAll(STORES.EVENTS).catch(e => { console.error('Failed to load events:', e); return []; });
         busyBlocks = await getAll(STORES.BUSY_BLOCKS).catch(e => { console.error('Failed to load busyBlocks:', e); return []; });
         places = await getAll(STORES.PLACES).catch(e => { console.error('Failed to load places:', e); return []; });
@@ -110,8 +33,6 @@ async function loadData() {
         for (let ov of overridesList) overrides.set(ov.compositeKey, ov);
         
         attendanceLog = await getAll(STORES.ATTENDANCE_LOG).catch(e => { console.error('Failed to load attendanceLog:', e); return []; });
-        
-        // Load new stores
         todos = await getAll(STORES.TODOS).catch(e => { console.error('Failed to load todos:', e); return []; });
         scheduledEvents = await getAll(STORES.SCHEDULED_EVENTS).catch(e => { console.error('Failed to load scheduledEvents:', e); return []; });
         
@@ -122,7 +43,6 @@ async function loadData() {
             preferences: allLearning.filter(l => l.type === 'preference'),
             preferredTimeSlots: {}
         };
-        // Populate preferredTimeSlots
         const preferred = allLearning.filter(l => l.type === 'preferredTime');
         for (const p of preferred) {
             if (!learningData.preferredTimeSlots[p.eventId]) learningData.preferredTimeSlots[p.eventId] = {};
@@ -133,7 +53,6 @@ async function loadData() {
         locationHistory = await getAll(STORES.LOCATION_HISTORY).catch(e => { console.error('Failed to load locationHistory:', e); return []; });
         userFeedback = await getAll(STORES.USER_FEEDBACK).catch(e => { console.error('Failed to load userFeedback:', e); return []; });
 
-        // Load settings with correct fallback
         restPolicy = (await getSetting('restPolicy')) ?? 'home';
         farMinutes = (await getSetting('farMinutes')) ?? 10;
         firstDayOfWeek = (await getSetting('firstDayOfWeek')) ?? 1;
@@ -143,20 +62,13 @@ async function loadData() {
         notifyMinutesBefore = (await getSetting('notifyMinutesBefore')) ?? 60;
         notifyTravelLead = (await getSetting('notifyTravelLead')) ?? 5;
 
-        // Load userSettings object
         const storedUserSettings = await getSetting('userSettings');
-        if (storedUserSettings) {
-            Object.assign(userSettings, storedUserSettings);
-        } else {
-            // Fallback to defaults defined in state.js
-        }
+        if (storedUserSettings) Object.assign(userSettings, storedUserSettings);
         planningHorizonWeeks = userSettings.planningHorizonWeeks ?? 4;
 
-        // Apply dark mode
         if (darkMode) document.documentElement.classList.add('dark');
         else document.documentElement.classList.remove('dark');
 
-        // Ensure at least one place exists
         if (!places.length) {
             const defaultPlace = { name: 'Home', lat: null, lon: null, radius: 30, travelToEvent: {} };
             const id = await addRecord(STORES.PLACES, defaultPlace);
@@ -164,14 +76,10 @@ async function loadData() {
         }
         currentPlaceId = places[0]?.id || 1;
         const placeDisplay = document.getElementById('currentPlaceDisplay');
-        if (placeDisplay) {
-            placeDisplay.innerText = `📍 ${places.find(p => p.id === currentPlaceId)?.name || 'Home'}`;
-        }
+        if (placeDisplay) placeDisplay.innerText = `📍 ${places.find(p => p.id === currentPlaceId)?.name || 'Home'}`;
 
         syncSettingsToUI();
         console.log('loadData completed successfully. Events:', events.length, 'BusyBlocks:', busyBlocks.length, 'Places:', places.length);
-        
-        // Return true to indicate successful load
         return true;
     } catch (error) {
         console.error('loadData failed:', error);
@@ -187,20 +95,16 @@ function updateCurrentPlaceFromLocation() {
     for (let p of places) {
         if (p.lat && p.lon) {
             const dist = getDistance(currentLocation.lat, currentLocation.lon, p.lat, p.lon);
-            if (dist <= p.radius) {
-                matched = p;
-                break;
-            }
+            if (dist <= p.radius) { matched = p; break; }
         }
     }
     if (matched && matched.id !== currentPlaceId) {
         currentPlaceId = matched.id;
-        // Also check sublocations
         if (matched.sublocations) {
             for (let sub of matched.sublocations) {
                 if (sub.lat && sub.lon) {
                     const dist = getDistance(currentLocation.lat, currentLocation.lon, sub.lat, sub.lon);
-                    if (dist <= 30) { // small radius for sublocation
+                    if (dist <= 30) {
                         currentLocation.sublocationId = sub.id || sub.name;
                         currentLocation.sublocationName = sub.name;
                         break;
@@ -222,7 +126,6 @@ async function showMainApp() {
     const wizardOverlay = document.getElementById('wizardOverlay');
     const mainApp = document.getElementById('mainApp');
     const fab = document.getElementById('fab');
-
     if (wizardOverlay) wizardOverlay.classList.add('hidden');
     if (mainApp) {
         mainApp.classList.remove('hidden');
@@ -230,11 +133,10 @@ async function showMainApp() {
         setTimeout(() => { mainApp.style.animation = ''; }, 500);
     }
     if (fab) fab.classList.remove('hidden');
-
     await fullRefresh();
     if (typeof scrollToNow === 'function') scrollToNow();
     showToast('Ready!', 'success');
-    // Run initial optimizer after data loaded
+    // Run initial optimizer once (event stream will handle subsequent changes)
     if (typeof runOptimizer === 'function') runOptimizer();
 }
 
@@ -255,7 +157,7 @@ async function detectConflicts() {
     let cur = new Date(start);
     while (cur <= end) {
         const dateStr = formatDate(cur);
-        const dayEvents = getDisplayEventsForDate(dateStr); // use display events
+        const dayEvents = getDisplayEventsForDate(dateStr);
         const dayBusy = getBusyBlocksForDate(dateStr);
         for (let ev of dayEvents) {
             const evStart = toMinutes(ev.startTime);
@@ -272,40 +174,31 @@ async function detectConflicts() {
     }
 }
 
-// ========== TRAVEL TIME ESTIMATION (enhanced with learning) ==========
+// ========== TRAVEL TIME ESTIMATION ==========
 function getTravelTime(eventId, fromPlaceId = currentPlaceId) {
     const fromPlace = places.find(p => p.id === fromPlaceId);
     const toPlace = places.find(p => p.id === currentPlaceId);
     if (!fromPlace || !toPlace) return 15;
-
-    // Check learned travel times from learningData
     const learned = learningData.travelTimes.find(t => t.fromPlaceId === fromPlaceId && t.toPlaceId === currentPlaceId);
     if (learned && learned.minutes) return Math.round(learned.minutes);
-
-    // Fallback to distance-based
     if (fromPlace.lat && fromPlace.lon && toPlace.lat && toPlace.lon) {
         const dist = getDistance(fromPlace.lat, fromPlace.lon, toPlace.lat, toPlace.lon);
-        const speed = userSettings.travelSpeed === 'driving' ? 50 : 5; // km/h
+        const speed = userSettings.travelSpeed === 'driving' ? 50 : 5;
         const minutes = dist / (speed * 1000 / 60);
         return Math.min(120, Math.max(5, Math.round(minutes)));
     }
-    // Custom travel time from place.travelToEvent
     const custom = fromPlace.travelToEvent?.[eventId] || toPlace.travelToEvent?.[eventId];
     return custom ?? 15;
 }
 
 // ========== OPTIMIZER (Constraint Solver) ==========
-// ========== OPTIMIZER (Constraint Solver) ==========
 async function runOptimizer() {
-    // Prevent concurrent runs
     if (optimizerLock) {
         console.log('Optimizer already running, skipping...');
         return;
     }
     optimizerLock = true;
-    
     try {
-        // Use the scheduler module if available
         if (typeof Scheduler !== 'undefined' && Scheduler.run) {
             showToast('Optimizing your schedule...', 'info');
             await Scheduler.run();
@@ -320,13 +213,12 @@ async function runOptimizer() {
     } finally {
         optimizerLock = false;
         lastOptimizerRun = new Date();
-        // Refresh calendar to show the updated schedule
         if (typeof fullRefresh === 'function') fullRefresh();
         else if (typeof renderCalendar === 'function') renderCalendar();
     }
 }
 
-// Undo/Redo functionality is now provided by undoRedo.js
+// Undo/Redo is provided by undoRedo.js
 // The global undo() and redo() functions are defined there.
 
 // ========== GPS ==========
@@ -370,7 +262,6 @@ async function handleGpsPosition(position) {
     }
     if (matched && matched.id !== currentPlaceId) {
         currentPlaceId = matched.id;
-        // Check sublocations
         if (matched.sublocations) {
             for (let sub of matched.sublocations) {
                 if (sub.lat && sub.lon) {
@@ -398,7 +289,6 @@ async function handleGpsPosition(position) {
             showGPSModal(closest, closestDist, lat, lon);
         }
     }
-    // Record location history if userSettings.autoLearn
     if (userSettings.autoLearn) {
         await addRecord('locationHistory', {
             lat, lon, placeId: matched?.id || null, sublocationId: currentLocation.sublocationId,
@@ -414,19 +304,14 @@ function showNukeAnimation() {
     mainApp.classList.add('nuke-flash');
     setTimeout(() => mainApp.classList.remove('nuke-flash'), 500);
 }
+
 // ========== DRAG AND DROP HANDLERS ==========
 window.dragstart_handler = function(ev) {
     const block = ev.target.closest('.event-block');
-    if (!block) {
-        ev.preventDefault();
-        return;
-    }
+    if (!block) { ev.preventDefault(); return; }
     const eventId = block.dataset.id;
     const dateStr = block.dataset.date;
-    if (!eventId || !dateStr) {
-        ev.preventDefault();
-        return;
-    }
+    if (!eventId || !dateStr) { ev.preventDefault(); return; }
     ev.dataTransfer.setData("text/plain", JSON.stringify({
         eventId: parseInt(eventId),
         dateStr: dateStr
@@ -446,9 +331,7 @@ window.drop_handler = async function(ev) {
     let data;
     try {
         data = JSON.parse(ev.dataTransfer.getData("text/plain"));
-    } catch (e) {
-        return;
-    }
+    } catch (e) { return; }
     const eventId = data.eventId;
     const oldDateStr = data.dateStr;
     const targetDateStr = targetCell.dataset.date;
@@ -457,25 +340,16 @@ window.drop_handler = async function(ev) {
 
     const key = `${eventId}_${oldDateStr}`;
     const newKey = `${eventId}_${targetDateStr}`;
-    
-    // Check if there is already an override for the new date
     if (overrides.has(newKey)) {
         showToast('Target date already has an override for this event', 'warning');
         return;
     }
-    
-    // Create a new override (exception) for the target date
     const originalEvent = events.find(e => e.id === eventId);
     if (!originalEvent) {
         showToast('Event not found', 'error');
         return;
     }
-    
-    const overrideEvent = {
-        ...originalEvent,
-        startDate: targetDateStr
-    };
-    
+    const overrideEvent = { ...originalEvent, startDate: targetDateStr };
     const override = {
         compositeKey: newKey,
         eventId: eventId,
@@ -483,25 +357,28 @@ window.drop_handler = async function(ev) {
         type: 'exception',
         newEvent: overrideEvent
     };
-    
-    // Remove old override if exists
     if (overrides.has(key)) {
         await deleteRecord(STORES.OVERRIDES, key);
         overrides.delete(key);
     }
-    
-    // Add new override
     await putRecord(STORES.OVERRIDES, override);
     overrides.set(newKey, override);
-    
-    // Refresh the UI
     await fullRefresh();
     showToast(`Moved event to ${targetDateStr}`);
 };
+
 // ========== MAIN INITIALIZATION ==========
 window.addEventListener('DOMContentLoaded', async () => {
     await initDB();
     await loadData();
+
+    // Start The Instant Responder (event stream) – MUST be after initDB
+    if (typeof initEventStream === 'function') {
+        initEventStream();
+        console.log('Event stream (Instant Responder) started');
+    } else {
+        console.warn('initEventStream not available – event reactivity disabled');
+    }
 
     const loadingOverlay = document.getElementById('loadingOverlay');
     if (loadingOverlay) loadingOverlay.style.display = 'none';
@@ -518,7 +395,7 @@ window.addEventListener('DOMContentLoaded', async () => {
         await showMainApp();
     }
 
-    // ========== UI EVENT LISTENERS (existing and new) ==========
+    // ========== UI EVENT LISTENERS ==========
     document.getElementById('undoBtn')?.addEventListener('click', undo);
     document.getElementById('redoBtn')?.addEventListener('click', redo);
     document.getElementById('todayBtn')?.addEventListener('click', () => { currentDate = new Date(); renderCalendar(); });
@@ -552,12 +429,8 @@ window.addEventListener('DOMContentLoaded', async () => {
         fabButton.addEventListener('click', (e) => {
             e.stopPropagation();
             console.log('FAB clicked, opening event modal');
-            if (typeof openEventModal === 'function') {
-                openEventModal();
-            } else {
-                console.error('openEventModal is not defined');
-                showToast('Cannot open event modal', 'error');
-            }
+            if (typeof openEventModal === 'function') openEventModal();
+            else showToast('Cannot open event modal', 'error');
         });
     }
     document.getElementById('gpsUpdateBtn')?.addEventListener('click', () => {
@@ -565,21 +438,11 @@ window.addEventListener('DOMContentLoaded', async () => {
         else startGPS();
     });
 
-    // New button for to-do panel (if exists)
     const todoPanelToggle = document.getElementById('todoPanelToggle');
-    if (todoPanelToggle) {
-        todoPanelToggle.addEventListener('click', () => {
-            const panel = document.getElementById('todoPanel');
-            if (panel) panel.classList.toggle('hidden');
-            if (typeof renderTodoList === 'function') renderTodoList();
-        });
-    }
-
-    // New button for event list
+    if (todoPanelToggle) todoPanelToggle.addEventListener('click', () => TodoPanel.toggle());
     const eventListBtn = document.getElementById('eventListBtn');
     if (eventListBtn) eventListBtn.addEventListener('click', showEventListModal);
 
-    // Wizard exit button
     const wizardExitBtn = document.getElementById('wizardExitBtn');
     if (wizardExitBtn) {
         wizardExitBtn.addEventListener('click', async () => {
@@ -590,7 +453,6 @@ window.addEventListener('DOMContentLoaded', async () => {
         });
     }
 
-    // Modal backdrop close
     document.querySelectorAll('.modal-backdrop[data-closeable]').forEach(modal => {
         modal.addEventListener('click', (e) => {
             if (e.target === modal) {
@@ -601,7 +463,6 @@ window.addEventListener('DOMContentLoaded', async () => {
         });
     });
 
-    // ESC key
     document.addEventListener('keydown', (e) => {
         if (e.key === 'Escape') {
             if (ModalManager.current === 'eventModal') closeEventModalWithCheck();
@@ -610,7 +471,6 @@ window.addEventListener('DOMContentLoaded', async () => {
         }
     });
 
-    // Notification bell
     const notifBell = document.getElementById('notifBell');
     const notifPanel = document.getElementById('notifPanel');
     if (notifBell && notifPanel) {
@@ -631,7 +491,6 @@ window.addEventListener('DOMContentLoaded', async () => {
         });
     }
 
-    // Event repeat panel
     const eventRepeatSelect = document.getElementById('eventRepeat');
     if (eventRepeatSelect) {
         eventRepeatSelect.addEventListener('change', () => {
@@ -643,7 +502,6 @@ window.addEventListener('DOMContentLoaded', async () => {
         eventRepeatSelect.dispatchEvent(new Event('change'));
     }
 
-    // Weekly days container
     const weeklyContainer = document.getElementById('weeklyDaysContainer');
     if (weeklyContainer && weeklyContainer.children.length === 0) {
         const days = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
@@ -654,7 +512,6 @@ window.addEventListener('DOMContentLoaded', async () => {
         `).join('');
     }
 
-    // Dark mode toggle
     const darkToggle = document.getElementById('darkModeToggle');
     if (darkToggle) {
         darkToggle.addEventListener('change', async (e) => {
@@ -665,7 +522,6 @@ window.addEventListener('DOMContentLoaded', async () => {
         });
     }
 
-    // Draft managers
     eventDraftManager = new FormDraft('eventModal', 'eventDraft', {
         priority: {
             read: (modal) => modal.querySelectorAll('#eventPriorityStars .fa-star.selected').length,
@@ -698,7 +554,6 @@ window.addEventListener('DOMContentLoaded', async () => {
     });
     todoDraftManager = new FormDraft('todoModal', 'todoDraft', {});
 
-    // Settings modal
     const settingsModal = document.getElementById('settingsModal');
     const closeSettingsX = document.getElementById('closeSettingsModal');
     const settingsDone = document.getElementById('settingsDoneBtn');
@@ -773,7 +628,6 @@ window.addEventListener('DOMContentLoaded', async () => {
     });
     switchTab('preferences');
 
-    // Save event
     const saveEventBtn = document.getElementById('saveEventBtn');
     if (saveEventBtn) {
         saveEventBtn.addEventListener('click', async () => {
@@ -788,7 +642,7 @@ window.addEventListener('DOMContentLoaded', async () => {
                 }
                 const eventData = {
                     id: editingEventId || undefined,
-                    name: eventName,
+                    name: document.getElementById('eventName').value.trim(),
                     openTime: document.getElementById('eventOpenTime').value,
                     closeTime: document.getElementById('eventCloseTime').value,
                     minStay: parseInt(document.getElementById('eventMinStay').value),
@@ -805,7 +659,6 @@ window.addEventListener('DOMContentLoaded', async () => {
                     endTime: fromMinutes(toMinutes(document.getElementById('eventOpenTime').value) + (parseInt(document.getElementById('eventMinStay').value) || 60)),
                     priority: document.querySelectorAll('#eventPriorityStars .fa-star.selected').length,
                     travelMins: 15,
-                    // Ensure weeklyDays is an array of numbers (0-6) based on the selected checkboxes
                     weeklyDays: (() => {
                         const container = document.getElementById('weeklyDaysContainer');
                         if (!container) return [];
@@ -815,80 +668,67 @@ window.addEventListener('DOMContentLoaded', async () => {
                     monthlyDay: parseInt(document.getElementById('monthlyDay').value) || 1,
                     placeId: document.getElementById('eventPlaceId').value || null
                 };
-                // Check for conflicts before saving
-const eventDateStr = editingDateStr || eventData.startDate;
-const dayBusy = getBusyBlocksForDate(eventDateStr);
-const dayEvents = getEventsForDate(eventDateStr);
-const newStartMin = toMinutes(eventData.startTime);
-const newEndMin = toMinutes(eventData.endTime);
-let hasConflict = false;
-let conflictMessage = '';
-
-// Check against busy blocks
-for (const busy of dayBusy) {
-    const busyStart = toMinutes(busy.startTime);
-    const busyEnd = toMinutes(busy.endTime);
-    if (newStartMin < busyEnd && newEndMin > busyStart) {
-        hasConflict = true;
-        conflictMessage = `This event conflicts with "${busy.description || 'busy block'}" (${busy.startTime}–${busy.endTime}).`;
-        break;
-    }
-}
-
-// Check against other events (only if not editing the same event)
-if (!hasConflict) {
-    for (const ev of dayEvents) {
-        if (editingEventId && ev.id === editingEventId) continue;
-        const evStart = toMinutes(ev.startTime);
-        const evEnd = toMinutes(ev.endTime);
-        if (newStartMin < evEnd && newEndMin > evStart) {
-            hasConflict = true;
-            conflictMessage = `This event conflicts with "${ev.name}" (${ev.startTime}–${ev.endTime}).`;
-            break;
-        }
-    }
-}
-
-// If conflict detected, show modal and let user decide
-if (hasConflict) {
-    const userConfirmed = await new Promise((resolve) => {
-        // Create a simple confirm modal (or reuse conflict modal)
-        if (typeof showConflictModal === 'function') {
-            showConflictModal({
-                message: conflictMessage,
-                onResolve: () => resolve(true),
-                onIgnore: () => resolve(false)
-            });
-        } else {
-            // Fallback to browser confirm
-            const result = confirm(conflictMessage + '\n\nSave anyway?');
-            resolve(result);
-        }
-    });
-    
-    if (!userConfirmed) {
-        // User chose not to save
-        if (eventDraftManager) await eventDraftManager.saveDraft();
-        return;
-    }
-}
-
-// Proceed with saving
-if (editingEventId && editingDateStr) {
-    const key = `${editingEventId}_${editingDateStr}`;
-    await putRecord('overrides', { compositeKey: key, eventId: editingEventId, dateStr: editingDateStr, type: 'exception', newEvent: eventData });
-    showToast(`Updated occurrence of ${eventData.name}`);
-    await pushAction(`Override occurrence of ${eventData.name}`, async () => {}, async () => {});
-} else if (editingEventId) {
-    await putRecord('events', eventData);
-    await pushAction(`Edit event ${eventData.name}`, async () => {}, async () => {});
-} else {
-    await addRecord('events', eventData);
-    await pushAction(`Add event ${eventData.name}`, async () => {}, async () => {});
-}
-if (eventDraftManager) await eventDraftManager.clearDraft();
-await fullRefresh();
-ModalManager.close('eventModal');
+                const eventDateStr = editingDateStr || eventData.startDate;
+                const dayBusy = getBusyBlocksForDate(eventDateStr);
+                const dayEvents = getEventsForDate(eventDateStr);
+                const newStartMin = toMinutes(eventData.startTime);
+                const newEndMin = toMinutes(eventData.endTime);
+                let hasConflict = false;
+                let conflictMessage = '';
+                for (const busy of dayBusy) {
+                    const busyStart = toMinutes(busy.startTime);
+                    const busyEnd = toMinutes(busy.endTime);
+                    if (newStartMin < busyEnd && newEndMin > busyStart) {
+                        hasConflict = true;
+                        conflictMessage = `This event conflicts with "${busy.description || 'busy block'}" (${busy.startTime}–${busy.endTime}).`;
+                        break;
+                    }
+                }
+                if (!hasConflict) {
+                    for (const ev of dayEvents) {
+                        if (editingEventId && ev.id === editingEventId) continue;
+                        const evStart = toMinutes(ev.startTime);
+                        const evEnd = toMinutes(ev.endTime);
+                        if (newStartMin < evEnd && newEndMin > evStart) {
+                            hasConflict = true;
+                            conflictMessage = `This event conflicts with "${ev.name}" (${ev.startTime}–${ev.endTime}).`;
+                            break;
+                        }
+                    }
+                }
+                if (hasConflict) {
+                    const userConfirmed = await new Promise((resolve) => {
+                        if (typeof showConflictModal === 'function') {
+                            showConflictModal({
+                                message: conflictMessage,
+                                onResolve: () => resolve(true),
+                                onIgnore: () => resolve(false)
+                            });
+                        } else {
+                            const result = confirm(conflictMessage + '\n\nSave anyway?');
+                            resolve(result);
+                        }
+                    });
+                    if (!userConfirmed) {
+                        if (eventDraftManager) await eventDraftManager.saveDraft();
+                        return;
+                    }
+                }
+                if (editingEventId && editingDateStr) {
+                    const key = `${editingEventId}_${editingDateStr}`;
+                    await putRecord('overrides', { compositeKey: key, eventId: editingEventId, dateStr: editingDateStr, type: 'exception', newEvent: eventData });
+                    showToast(`Updated occurrence of ${eventData.name}`);
+                    await pushAction(`Override occurrence of ${eventData.name}`, async () => {}, async () => {});
+                } else if (editingEventId) {
+                    await putRecord('events', eventData);
+                    await pushAction(`Edit event ${eventData.name}`, async () => {}, async () => {});
+                } else {
+                    await addRecord('events', eventData);
+                    await pushAction(`Add event ${eventData.name}`, async () => {}, async () => {});
+                }
+                if (eventDraftManager) await eventDraftManager.clearDraft();
+                await fullRefresh();
+                ModalManager.close('eventModal');
             } finally {
                 saveEventBtn.disabled = false;
                 if (spinner) spinner.classList.add('hidden');
@@ -896,15 +736,9 @@ ModalManager.close('eventModal');
         });
     }
 
-    // Save todo
     const saveTodoBtn = document.getElementById('saveTodoBtn');
-    if (saveTodoBtn) {
-        saveTodoBtn.addEventListener('click', async () => {
-            await saveTodoModal();
-        });
-    }
+    if (saveTodoBtn) saveTodoBtn.addEventListener('click', async () => { await saveTodoModal(); });
 
-    // Save busy (existing)
     async function saveBusyBlockFromForm() {
         const busy = {
             description: document.getElementById('busyDescription').value,
@@ -943,7 +777,6 @@ ModalManager.close('eventModal');
         showToast('Saved — add another', 'success');
     });
 
-    // Busy recurrence change
     document.getElementById('busyRecurrence')?.addEventListener('change', (e) => {
         const val = e.target.value;
         document.getElementById('busyDateSingle').classList.toggle('hidden', val !== 'once');
@@ -952,59 +785,33 @@ ModalManager.close('eventModal');
     });
     document.getElementById('busyRecurrence')?.dispatchEvent(new Event('change'));
 
-// ========== MODAL CANCEL/CLOSE ==========
-const cancelEventBtn = document.getElementById('cancelEventBtn');
-const closeEventModalBtn = document.getElementById('closeEventModal');
-if (cancelEventBtn) {
-    cancelEventBtn.addEventListener('click', (e) => {
-        e.preventDefault();
-        closeEventModalWithCheck();
-    });
-}
-if (closeEventModalBtn) {
-    closeEventModalBtn.addEventListener('click', (e) => {
-        e.preventDefault();
-        closeEventModalWithCheck();
-    });
-}
+    const cancelEventBtn = document.getElementById('cancelEventBtn');
+    const closeEventModalBtn = document.getElementById('closeEventModal');
+    if (cancelEventBtn) cancelEventBtn.addEventListener('click', (e) => { e.preventDefault(); closeEventModalWithCheck(); });
+    if (closeEventModalBtn) closeEventModalBtn.addEventListener('click', (e) => { e.preventDefault(); closeEventModalWithCheck(); });
 
-const closeBusyModalBtn = document.getElementById('closeBusyModal');
-const cancelBusyBtn = document.getElementById('cancelBusyBtn');
-if (closeBusyModalBtn) {
-    closeBusyModalBtn.addEventListener('click', (e) => {
-        e.preventDefault();
-        ModalManager.close('busyModal');
-    });
-}
-if (cancelBusyBtn) {
-    cancelBusyBtn.addEventListener('click', (e) => {
-        e.preventDefault();
-        ModalManager.close('busyModal');
-    });
-}
+    const closeBusyModalBtn = document.getElementById('closeBusyModal');
+    const cancelBusyBtn = document.getElementById('cancelBusyBtn');
+    if (closeBusyModalBtn) closeBusyModalBtn.addEventListener('click', (e) => { e.preventDefault(); ModalManager.close('busyModal'); });
+    if (cancelBusyBtn) cancelBusyBtn.addEventListener('click', (e) => { e.preventDefault(); ModalManager.close('busyModal'); });
 
-const clearDraftBtn = document.getElementById('clearDraftBtn');
-if (clearDraftBtn) {
-    clearDraftBtn.addEventListener('click', async (e) => {
+    const clearDraftBtn = document.getElementById('clearDraftBtn');
+    if (clearDraftBtn) clearDraftBtn.addEventListener('click', async (e) => {
         e.preventDefault();
         if (eventDraftManager) await eventDraftManager.clearDraft();
         document.getElementById('draftBanner')?.classList.add('hidden');
         showToast('Draft cleared', 'success');
     });
-}
 
-    // Settings listeners (existing + new)
     document.getElementById('restPolicySelect')?.addEventListener('change', async (e) => {
         restPolicy = e.target.value;
         await setSetting('restPolicy', restPolicy);
         syncSettingsToUI();
-        debouncedOptimizerRun();
     });
     document.getElementById('farMinutes')?.addEventListener('change', async (e) => {
         farMinutes = parseInt(e.target.value);
         await setSetting('farMinutes', farMinutes);
         syncSettingsToUI();
-        debouncedOptimizerRun();
     });
     document.getElementById('firstDayOfWeek')?.addEventListener('change', async (e) => {
         firstDayOfWeek = parseInt(e.target.value);
@@ -1037,77 +844,54 @@ if (clearDraftBtn) {
         updateNotifications();
     });
 
-    // New settings listeners
     const planningHorizonSelect = document.getElementById('planningHorizonWeeks');
-    if (planningHorizonSelect) {
-        planningHorizonSelect.addEventListener('change', async (e) => {
-            planningHorizonWeeks = parseInt(e.target.value);
-            userSettings.planningHorizonWeeks = planningHorizonWeeks;
-            await setSetting('userSettings', userSettings);
-            debouncedOptimizerRun();
-        });
-    }
+    if (planningHorizonSelect) planningHorizonSelect.addEventListener('change', async (e) => {
+        planningHorizonWeeks = parseInt(e.target.value);
+        userSettings.planningHorizonWeeks = planningHorizonWeeks;
+        await setSetting('userSettings', userSettings);
+    });
     const travelSpeedSelect = document.getElementById('travelSpeed');
-    if (travelSpeedSelect) {
-        travelSpeedSelect.addEventListener('change', async (e) => {
-            userSettings.travelSpeed = e.target.value;
-            await setSetting('userSettings', userSettings);
-            debouncedOptimizerRun();
-        });
-    }
+    if (travelSpeedSelect) travelSpeedSelect.addEventListener('change', async (e) => {
+        userSettings.travelSpeed = e.target.value;
+        await setSetting('userSettings', userSettings);
+    });
     const notificationSoundSelect = document.getElementById('notificationSound');
-    if (notificationSoundSelect) {
-        notificationSoundSelect.addEventListener('change', async (e) => {
-            userSettings.notificationSound = e.target.value;
-            await setSetting('userSettings', userSettings);
-        });
-    }
+    if (notificationSoundSelect) notificationSoundSelect.addEventListener('change', async (e) => {
+        userSettings.notificationSound = e.target.value;
+        await setSetting('userSettings', userSettings);
+    });
     const quietStartInput = document.getElementById('quietHoursStart');
-    if (quietStartInput) {
-        quietStartInput.addEventListener('change', async (e) => {
-            userSettings.quietHoursStart = parseInt(e.target.value);
-            await setSetting('userSettings', userSettings);
-        });
-    }
+    if (quietStartInput) quietStartInput.addEventListener('change', async (e) => {
+        userSettings.quietHoursStart = parseInt(e.target.value);
+        await setSetting('userSettings', userSettings);
+    });
     const quietEndInput = document.getElementById('quietHoursEnd');
-    if (quietEndInput) {
-        quietEndInput.addEventListener('change', async (e) => {
-            userSettings.quietHoursEnd = parseInt(e.target.value);
-            await setSetting('userSettings', userSettings);
-        });
-    }
+    if (quietEndInput) quietEndInput.addEventListener('change', async (e) => {
+        userSettings.quietHoursEnd = parseInt(e.target.value);
+        await setSetting('userSettings', userSettings);
+    });
     const showTodosCheck = document.getElementById('showTodosInCalendar');
-    if (showTodosCheck) {
-        showTodosCheck.addEventListener('change', async (e) => {
-            userSettings.showTodosInCalendar = e.target.checked;
-            await setSetting('userSettings', userSettings);
-            renderCalendar();
-        });
-    }
+    if (showTodosCheck) showTodosCheck.addEventListener('change', async (e) => {
+        userSettings.showTodosInCalendar = e.target.checked;
+        await setSetting('userSettings', userSettings);
+        renderCalendar();
+    });
     const autoLearnCheck = document.getElementById('autoLearn');
-    if (autoLearnCheck) {
-        autoLearnCheck.addEventListener('change', async (e) => {
-            userSettings.autoLearn = e.target.checked;
-            await setSetting('userSettings', userSettings);
-        });
-    }
+    if (autoLearnCheck) autoLearnCheck.addEventListener('change', async (e) => {
+        userSettings.autoLearn = e.target.checked;
+        await setSetting('userSettings', userSettings);
+    });
     const adaptBehaviorCheck = document.getElementById('adaptToUserBehavior');
-    if (adaptBehaviorCheck) {
-        adaptBehaviorCheck.addEventListener('change', async (e) => {
-            userSettings.adaptToUserBehavior = e.target.checked;
-            await setSetting('userSettings', userSettings);
-        });
-    }
+    if (adaptBehaviorCheck) adaptBehaviorCheck.addEventListener('change', async (e) => {
+        userSettings.adaptToUserBehavior = e.target.checked;
+        await setSetting('userSettings', userSettings);
+    });
 
-    // Advanced options toggle
     const toggleAdvancedBtn = document.getElementById('toggleAdvancedBtn');
-    if (toggleAdvancedBtn) {
-        toggleAdvancedBtn.addEventListener('click', () => {
-            document.getElementById('advancedOptions')?.classList.toggle('hidden');
-        });
-    }
+    if (toggleAdvancedBtn) toggleAdvancedBtn.addEventListener('click', () => {
+        document.getElementById('advancedOptions')?.classList.toggle('hidden');
+    });
 
-    // Export/Import/Reset
     document.getElementById('exportDataBtn')?.addEventListener('click', async () => {
         const data = {
             events, busyBlocks, places, overrides: Array.from(overrides.values()),
@@ -1137,8 +921,7 @@ if (clearDraftBtn) {
                 const text = await file.text();
                 const data = JSON.parse(text);
                 if (!data.events) throw new Error('Invalid format');
-                const summary = `File contains ${data.events.length} events, ${data.busyBlocks?.length || 0} busy blocks, ${data.todos?.length || 0} to‑dos. Import will replace all current data. Continue?`;
-                if (confirm(summary)) {
+                if (confirm(`File contains ${data.events.length} events, ${data.busyBlocks?.length || 0} busy blocks, ${data.todos?.length || 0} to‑dos. Import will replace all current data. Continue?`)) {
                     showNukeAnimation();
                     await clearAllStores();
                     for (let ev of data.events) await addRecord('events', ev);
@@ -1185,7 +968,6 @@ if (clearDraftBtn) {
         }
     });
 
-    // Swipe navigation
     let touchStartX = 0, touchEndX = 0;
     const calendarContainer = document.getElementById('calendarContainer');
     if (calendarContainer) {
@@ -1206,7 +988,6 @@ if (clearDraftBtn) {
         });
     }
 
-    // Notification permission (only if wizard complete)
     const wizardCompleteFlag = await getSetting('wizardComplete');
     if (wizardCompleteFlag && Notification.permission === "default") {
         setTimeout(() => Notification.requestPermission(), 3000);
