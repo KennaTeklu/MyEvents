@@ -296,6 +296,8 @@ function showFieldError(inputEl, message) {
 }
 
 // ========== BUSY MODAL ==========
+let editingBusyId = null; // FIX: declare variable for editing busy blocks
+
 function openBusyModal(busy = null, dateStr = null) {
     const modal = document.getElementById('busyModal');
     if (!modal) return;
@@ -355,6 +357,7 @@ function openBusyModal(busy = null, dateStr = null) {
     }
 
     if (busy) {
+        editingBusyId = busy.id; // FIX: set the ID for editing
         populate(busy);
         if (busyDraftManager) busyDraftManager.clearDraft();
         ModalManager.open('busyModal');
@@ -363,6 +366,7 @@ function openBusyModal(busy = null, dateStr = null) {
     }
 
     // New busy block: populate empty form
+    editingBusyId = null; // FIX: clear editing ID for new block
     populate({ date: dateStr || formatDate(new Date()) });
     if (busyDraftManager) {
         busyDraftManager.loadDraft().then(() => {
@@ -512,7 +516,7 @@ function showConflictModal(conflictInfo) {
     const overlapBtn = modal.querySelector('#overlapConflictBtn');
     const splitBtn = modal.querySelector('#splitConflictBtn');
 
-    // Remove any existing listeners to prevent stacking
+    // Remove existing listeners by cloning
     const newResolve = resolveBtn.cloneNode(true);
     const newIgnore = ignoreBtn.cloneNode(true);
     const newOverlap = overlapBtn.cloneNode(true);
@@ -522,38 +526,41 @@ function showConflictModal(conflictInfo) {
     overlapBtn.parentNode.replaceChild(newOverlap, overlapBtn);
     splitBtn.parentNode.replaceChild(newSplit, splitBtn);
 
-    newResolve.onclick = () => {
-        if (conflictInfo.onResolve) conflictInfo.onResolve();
-        ModalManager.close('conflictModal');
-    };
-    newIgnore.onclick = () => {
-        if (conflictInfo.onIgnore) conflictInfo.onIgnore();
-        ModalManager.close('conflictModal');
-    };
-    newOverlap.onclick = () => {
-        if (conflictInfo.onIgnore) conflictInfo.onIgnore();
-        showToast('Event forced to overlap', 'warning');
-        ModalManager.close('conflictModal');
-    };
-    newSplit.onclick = async () => {
-        if (conflictInfo.busyObj && conflictInfo.eventObj) {
-            try {
-                await BusyManager.splitBusyBlock(
-                    conflictInfo.busyObj.id,
-                    conflictInfo.busyObj.date,
-                    conflictInfo.eventObj.startTime,
-                    true
-                );
-                showToast('Busy block split', 'success');
-                if (conflictInfo.onResolve) conflictInfo.onResolve();
-            } catch (e) {
-                showToast('Cannot split this busy block', 'error');
+    // Return a Promise that resolves with the user's action string
+    return new Promise((resolve) => {
+        newResolve.onclick = () => {
+            ModalManager.close('conflictModal');
+            resolve('reschedule');
+        };
+        newIgnore.onclick = () => {
+            ModalManager.close('conflictModal');
+            resolve('ignore');
+        };
+        newOverlap.onclick = () => {
+            ModalManager.close('conflictModal');
+            resolve('overlap');
+        };
+        newSplit.onclick = async () => {
+            if (conflictInfo.busyObj && conflictInfo.eventObj) {
+                try {
+                    await BusyManager.splitBusyBlock(
+                        conflictInfo.busyObj.id,
+                        conflictInfo.busyObj.date,
+                        conflictInfo.eventObj.startTime,
+                        true
+                    );
+                    showToast('Busy block split', 'success');
+                    resolve('split');
+                } catch (e) {
+                    showToast('Cannot split this busy block', 'error');
+                    resolve('ignore');
+                }
+            } else {
+                resolve('ignore');
             }
-        }
-        ModalManager.close('conflictModal');
-    };
-
-    ModalManager.open('conflictModal');
+            ModalManager.close('conflictModal');
+        };
+    });
 }
 
 // ========== BOTTOM SHEET CONTEXT MENU ==========

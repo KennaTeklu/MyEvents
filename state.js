@@ -71,6 +71,7 @@ var currentLocation = {     // More detailed location info
 
 // ========== EDITOR & MODAL STATE (Module 7: Indestructible Form Drafts) ==========
 var editingEventId = null; // ID of event currently being edited (null = new event)
+var editingBusyId = null;  // ID of busy block currently being edited
 var editingDateStr = null; // Specific occurrence date being overridden
 var eventDraftManager = null; // Instance of FormDraft class (event modal)
 var busyDraftManager = null;  // Instance of FormDraft class (busy modal)

@@ -682,18 +682,40 @@ window.addEventListener('DOMContentLoaded', async () => {
                     }
                 }
 
-                if (hasConflict) {
-                    const userConfirmed = await new Promise((resolve) => {
-                        showConflictModal({
-                            message: conflictMsg,
-                            busyObj: conflictBusyObj,
-                            eventObj: eventData,
-                            onResolve: () => resolve(true),
-                            onIgnore: () => resolve(false)
-                        });
-                    });
-                    if (!userConfirmed) throw new Error("Conflict check aborted save");
-                }
+if (hasConflict) {
+    let action = 'ignore';
+    if (typeof showConflictModal === 'function') {
+        action = await showConflictModal({
+            message: conflictMsg,
+            busyObj: conflictBusyObj,
+            eventObj: eventData
+        });
+    } else {
+        const result = confirm(conflictMsg + '\n\nSave anyway?');
+        action = result ? 'ignore' : 'cancel';
+    }
+
+    if (action === 'cancel') {
+        throw new Error("Conflict check aborted save");
+    }
+
+    if (action === 'reschedule') {
+        if (typeof ConflictHealer !== 'undefined' && ConflictHealer.resolveOne) {
+            const success = await ConflictHealer.resolveOne(eventData, eventData.startDate);
+            if (success) {
+                showToast('Event rescheduled to a free slot', 'success');
+                await fullRefresh();
+                ModalManager.close('eventModal');
+                return;
+            } else {
+                showToast('No alternative time available. Please adjust manually.', 'error');
+                throw new Error("Reschedule failed");
+            }
+        } else {
+            showToast('Rescheduling not available. Saving anyway.', 'warning');
+        }
+    }
+}
 
                 // Save via EventManager
                 if (editingEventId && editingDateStr) {
@@ -728,7 +750,7 @@ window.addEventListener('DOMContentLoaded', async () => {
     }
 
     // Save busy
-    async function saveBusyBlockFromForm() {
+      async function saveBusyBlockFromForm() {
         const busy = {
             description: document.getElementById('busyDescription').value,
             hard: document.getElementById('busyHard').checked,
@@ -746,7 +768,20 @@ window.addEventListener('DOMContentLoaded', async () => {
         if (busy.recurrence === 'weekly') {
             busy.daysOfWeek = Array.from(document.querySelectorAll('#busyDaysCheckboxes input:checked')).map(cb => parseInt(cb.value));
         }
-        await addRecord('busyBlocks', busy);
+
+        // Check if we are editing an existing busy block
+        if (window.editingBusyId && window.editingBusyId !== null) {
+            // Update existing record
+            busy.id = window.editingBusyId;
+            await putRecord('busyBlocks', busy);
+            showToast('Busy block updated', 'success');
+            window.editingBusyId = null; // Reset after update
+        } else {
+            // Create new record
+            await addRecord('busyBlocks', busy);
+            showToast('Busy block added', 'success');
+        }
+
         if (busyDraftManager) await busyDraftManager.clearDraft();
         await fullRefresh();
         return busy;
