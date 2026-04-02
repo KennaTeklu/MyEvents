@@ -1,4 +1,12 @@
 /*
+ * Smart Scheduler – Intelligent Time Manager
+ * Copyright (c) 2026 Kenna Teklu. All rights reserved.
+ *
+ * This software is proprietary and confidential.
+ * Unauthorized copying, distribution, or use of this file, via any medium,
+ * is strictly prohibited. See the LICENSE file for full terms.
+ */
+/*
  * eventStream.js – The Instant Responder
  * Central event bus that listens to all changes from db.js
  * and triggers reactive actions (e.g., incremental scheduling, conflict detection).
@@ -7,10 +15,15 @@
 // ========== PRIVATE VARIABLES ==========
 let debounceTimers = new Map();
 const DEBOUNCE_MS = 300;
+let isStreamPaused = false; // Prevent cascade during bulk operations (undo/redo, import)
+
+// Expose pause/resume globally so other modules (undoRedo.js) can control the stream
+window.pauseEventStream = () => { isStreamPaused = true; };
+window.resumeEventStream = () => { isStreamPaused = false; };
 
 // ========== LISTEN TO DB EVENTS ==========
 function initEventStream() {
-    // Listen to record changes
+    // Listen to record changes (these events are emitted by db.js)
     onEvent('record:added', handleRecordAdded);
     onEvent('record:updated', handleRecordUpdated);
     onEvent('record:deleted', handleRecordDeleted);
@@ -23,10 +36,10 @@ function initEventStream() {
 
 // ========== HANDLERS ==========
 function handleRecordAdded(payload) {
+    if (isStreamPaused) return;
     const { storeName, record } = payload;
     console.log(`[EventStream] Added to ${storeName}:`, record);
     
-    // Debounce to avoid rapid consecutive triggers
     const key = `${storeName}:added`;
     debounceAction(key, () => {
         switch (storeName) {
@@ -50,6 +63,7 @@ function handleRecordAdded(payload) {
 }
 
 function handleRecordUpdated(payload) {
+    if (isStreamPaused) return;
     const { storeName, record } = payload;
     console.log(`[EventStream] Updated in ${storeName}:`, record);
     
@@ -75,6 +89,7 @@ function handleRecordUpdated(payload) {
 }
 
 function handleRecordDeleted(payload) {
+    if (isStreamPaused) return;
     const { storeName, key: recordKey } = payload;
     console.log(`[EventStream] Deleted from ${storeName}: key=${recordKey}`);
     
@@ -89,6 +104,7 @@ function handleRecordDeleted(payload) {
 }
 
 function handleStoreCleared(payload) {
+    if (isStreamPaused) return;
     const { storeName } = payload;
     console.log(`[EventStream] Cleared entire store: ${storeName}`);
     if (storeName === 'events' || storeName === 'busyBlocks' || storeName === 'todos') {
@@ -97,6 +113,7 @@ function handleStoreCleared(payload) {
 }
 
 function handleSettingChanged(payload) {
+    if (isStreamPaused) return;
     const { key, value } = payload;
     if (key === 'planningHorizonWeeks') {
         triggerRescheduling();
@@ -104,6 +121,7 @@ function handleSettingChanged(payload) {
 }
 
 function handleAllCleared() {
+    if (isStreamPaused) return;
     console.log('[EventStream] All data cleared – resetting state');
     triggerRescheduling();
 }
@@ -129,12 +147,11 @@ function triggerRescheduling(affectedRecord = null) {
         endDate.setDate(endDate.getDate() + (planningHorizonWeeks || 4) * 7);
     }
     
-    // Call the scheduler (defined in scheduler.js)
+    // Call the incremental scheduler if available, otherwise full optimizer
     if (typeof Scheduler !== 'undefined' && Scheduler.runIncremental) {
-        Scheduler.runIncremental(startDate, endDate);
-    } else {
-        // Fallback to full run
-        if (typeof runOptimizer === 'function') runOptimizer();
+        Scheduler.runIncremental(startDate, endDate, affectedRecord?.id);
+    } else if (typeof runOptimizer === 'function') {
+        runOptimizer();
     }
 }
 
@@ -143,7 +160,6 @@ function triggerLocationUpdate(place) {
     if (typeof LocationManager !== 'undefined' && LocationManager.clearTravelCache) {
         LocationManager.clearTravelCache();
     }
-    // Recalculate any events that depend on this place
     triggerRescheduling();
 }
 

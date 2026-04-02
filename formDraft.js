@@ -6,6 +6,14 @@
  * Unauthorized copying, distribution, or use of this file, via any medium,
  * is strictly prohibited. See the LICENSE file for full terms.
  */
+/*
+ * Smart Scheduler – Intelligent Time Manager
+ * Copyright (c) 2026 Kenna Teklu. All rights reserved.
+ *
+ * This software is proprietary and confidential.
+ * Unauthorized copying, distribution, or use of this file, via any medium,
+ * is strictly prohibited. See the LICENSE file for full terms.
+ */
 // formDraft.js - Auto-save form data to IndexedDB and localStorage
 // Must be loaded after db.js
 
@@ -33,7 +41,7 @@ class FormDraft {
         }
         
         this.setupListeners();
-        this.loadDraft();
+        this.loadDraft(); // async, but we don't await – it will restore when ready
         
         // Keep a global registry for flushing on beforeunload
         if (!window._draftManagers) window._draftManagers = [];
@@ -111,23 +119,29 @@ class FormDraft {
 
     /**
      * Load draft from IndexedDB or localStorage.
+     * @returns {Promise<Object|null>} The restored draft, or null.
      */
     async loadDraft() {
         let draft = null;
         try {
-            draft = await loadDraft(this.key);
+            draft = await loadDraft(this.key); // from db.js
         } catch (err) {
             console.warn('Failed to load draft from IndexedDB:', err);
         }
+        
         if (!draft) {
             const local = localStorage.getItem(`draft_${this.key}`);
             if (local) {
                 try {
-                    draft = JSON.parse(local);
+                    const parsed = JSON.parse(local);
+                    // Ensure it's not just an empty object "{}"
+                    if (Object.keys(parsed).length > 0) draft = parsed;
                 } catch (e) {}
             }
         }
+        
         if (draft) this.restore(draft);
+        return draft; // Crucial: return the draft to the caller!
     }
 
     /**

@@ -6,8 +6,10 @@
  * Unauthorized copying, distribution, or use of this file, via any medium,
  * is strictly prohibited. See the LICENSE file for full terms.
  */
-// calendar.js - Enhanced Calendar Rendering with scheduled events, todos, travel blocks, feedback
-// Must be loaded after state.js, utils.js, db.js, modals.js
+/*
+ * calendar.js - Enhanced Calendar Rendering with scheduled events, todos, travel blocks, feedback
+ * Must be loaded after state.js, utils.js, db.js, modals.js
+ */
 
 // Use global constant from constants.js
 const PIXELS_PER_MIN = PIXELS_PER_MINUTE;
@@ -104,7 +106,7 @@ async function renderWeekView(container) {
             ondrop="drop_handler(event)"
             style="flex: 1; min-width: 100px; height: ${dayHeight}px; position: relative; background: ${isToday ? '#eff6ff' : 'white'}; border-right: 1px solid #e5e7eb;">`;
 
-        // Busy overlays
+        // Busy overlays (with data-busy-id for editing)
         for (const busy of dayBusy) {
             const startMin = toMinutes(busy.startTime);
             const endMin = toMinutes(busy.endTime);
@@ -113,7 +115,7 @@ async function renderWeekView(container) {
                 const endOffset = Math.min(endMin, latestHour * 60);
                 const top = (startOffset - earliestHour * 60) * PIXELS_PER_MIN;
                 const height = (endOffset - startOffset) * PIXELS_PER_MIN;
-                html += `<div class="busy-overlay ${busy.hard ? 'hard' : ''}" style="position: absolute; top: ${top}px; height: ${height}px; left: 0; right: 0; pointer-events: auto; cursor: pointer;"></div>`;
+                html += `<div class="busy-overlay ${busy.hard ? 'hard' : ''}" data-busy-id="${busy.id}" style="position: absolute; top: ${top}px; height: ${height}px; left: 0; right: 0; pointer-events: auto; cursor: pointer;"></div>`;
             }
         }
 
@@ -122,7 +124,6 @@ async function renderWeekView(container) {
         // Also show todos if setting enabled (as small icons)
         if (userSettings.showTodosInCalendar) {
             const todosDue = todos.filter(t => !t.completed && t.dueDate === dayStr);
-            // Show todo count as a badge in top right corner of day cell
             if (todosDue.length > 0) {
                 html += `<div class="todo-badge" style="position: absolute; top: 2px; right: 2px; background: #f59e0b; color: white; border-radius: 12px; padding: 0px 6px; font-size: 10px; font-weight: bold;">📝${todosDue.length}</div>`;
             }
@@ -163,7 +164,7 @@ async function renderWeekView(container) {
                             ${hasConflict ? '<span class="conflict-label" style="position: absolute; top: 2px; right: 2px; background: red; color: white; border-radius: 50%; width: 16px; height: 16px; font-size: 10px; text-align: center;">⚠️</span>' : ''}
                             ${isScheduled ? '<span class="scheduled-label" style="position: absolute; bottom: 2px; right: 2px; font-size: 8px; background: rgba(0,0,0,0.4); padding: 0px 2px; border-radius: 3px;">⚙️</span>' : ''}
                         </div>`;
-                // Travel block (only if event has travel time and it's the first event of the day? We'll show above event)
+                // Travel block
                 const travelMins = ev.travelMins || (ev.travelTimeFromPrev || 0);
                 if (travelMins > 0 && startOffset > earliestHour * 60) {
                     const travelTop = top - (travelMins * PIXELS_PER_MIN);
@@ -244,7 +245,7 @@ async function renderMobileWeekView(container) {
             ondrop="drop_handler(event)"
             style="flex: 0 0 90px; min-width: 90px; height: ${dayHeight}px; position: relative; background: ${isToday ? '#eff6ff' : 'white'}; border-right: 1px solid #e5e7eb;">`;
 
-        // Busy overlays
+        // Busy overlays (with data-busy-id)
         for (const busy of dayBusy) {
             const startMin = toMinutes(busy.startTime);
             const endMin = toMinutes(busy.endTime);
@@ -253,7 +254,7 @@ async function renderMobileWeekView(container) {
                 const endOffset = Math.min(endMin, latestHour * 60);
                 const top = (startOffset - earliestHour * 60) * PIXELS_PER_MIN;
                 const height = (endOffset - startOffset) * PIXELS_PER_MIN;
-                html += `<div class="busy-overlay ${busy.hard ? 'hard' : ''}" style="position: absolute; top: ${top}px; height: ${height}px; left: 0; right: 0;"></div>`;
+                html += `<div class="busy-overlay ${busy.hard ? 'hard' : ''}" data-busy-id="${busy.id}" style="position: absolute; top: ${top}px; height: ${height}px; left: 0; right: 0;"></div>`;
             }
         }
 
@@ -310,7 +311,7 @@ async function renderMobileWeekView(container) {
     container.innerHTML = html;
 }
 
-// ========== MONTH VIEW (with scheduled events and todo badges) ==========
+// ========== MONTH VIEW ==========
 async function renderMonthView(container) {
     const year = currentDate.getFullYear();
     const month = currentDate.getMonth();
@@ -342,9 +343,7 @@ async function renderMonthView(container) {
 
             html += `<div class="day-cell flex-1 border min-h-24 p-1 ${isCurrentMonth ? '' : 'text-gray-400'} ${isToday ? 'today-cell' : ''}" data-date="${dateStr}">
                         <div class="text-right text-sm font-semibold cursor-pointer" data-nav-date="${dateStr}">${date.getDate()}</div>`;
-            // Show up to 3 events
             const maxDisplay = 3;
-            let eventCount = 0;
             for (let i = 0; i < Math.min(dayEvents.length, maxDisplay); i++) {
                 const ev = dayEvents[i];
                 const isNogo = overrides.has(`${ev.id}_${dateStr}`) && overrides.get(`${ev.id}_${dateStr}`).type === 'nogo';
@@ -356,12 +355,10 @@ async function renderMonthView(container) {
                             ${escapeHtml(ev.name)}
                             ${isScheduled ? '⚙️' : ''}
                          </div>`;
-                eventCount++;
             }
             if (dayEvents.length > maxDisplay) {
                 html += `<div class="text-xs text-blue-500 mt-1 cursor-pointer more-events" data-date="${dateStr}">+${dayEvents.length - maxDisplay} more</div>`;
             }
-            // Show todo badge
             if (userSettings.showTodosInCalendar) {
                 const todosDue = todos.filter(t => !t.completed && t.dueDate === dateStr);
                 if (todosDue.length > 0) {
@@ -456,7 +453,7 @@ async function renderDayView(container) {
             const endOffset = Math.min(endMin, latestHour * 60);
             const top = (startOffset - earliestHour * 60) * PIXELS_PER_MIN;
             const height = (endOffset - startOffset) * PIXELS_PER_MIN;
-            html += `<div class="busy-overlay ${busy.hard ? 'hard' : ''}" style="position: absolute; top: ${top}px; height: ${height}px; left: 0; right: 0;"></div>`;
+            html += `<div class="busy-overlay ${busy.hard ? 'hard' : ''}" data-busy-id="${busy.id}" style="position: absolute; top: ${top}px; height: ${height}px; left: 0; right: 0;"></div>`;
         }
     }
 
@@ -512,7 +509,7 @@ function renderEmptyState(container) {
     container.appendChild(emptyDiv);
 }
 
-// ========== EVENT TOOLTIP (with like/dislike) ==========
+// ========== EVENT TOOLTIP ==========
 let tooltipEl = null;
 
 function showEventTooltip(ev, x, y) {
@@ -632,21 +629,22 @@ function attachCalendarEvents() {
         });
     });
 
-container.querySelectorAll('.busy-overlay').forEach(overlay => {
-    overlay.addEventListener('click', (e) => {
-        e.stopPropagation();
-        const cell = overlay.closest('.day-cell');
-        if (!cell) return;
-        const dateStr = cell.dataset.date;
-        if (!dateStr) return;
-        if (typeof openBusyModal === 'function') {
-            openBusyModal(null, dateStr);
-        } else {
-            console.error('openBusyModal is not defined');
-            showToast('Cannot edit busy block', 'error');
-        }
+    // Busy overlay click handler – now uses data-busy-id to edit existing block
+    container.querySelectorAll('.busy-overlay').forEach(overlay => {
+        overlay.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const cell = overlay.closest('.day-cell');
+            if (!cell) return;
+            const dateStr = cell.dataset.date;
+            const busyId = parseInt(overlay.dataset.busyId);
+            if (busyId && typeof openBusyModal === 'function') {
+                const busyObj = busyBlocks.find(b => b.id === busyId);
+                openBusyModal(busyObj, dateStr);
+            } else if (dateStr && typeof openBusyModal === 'function') {
+                openBusyModal(null, dateStr);
+            }
+        });
     });
-});
 
     let pressTimer = null;
     container.addEventListener('touchstart', (e) => {

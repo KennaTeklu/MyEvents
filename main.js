@@ -6,37 +6,8 @@
  * Unauthorized copying, distribution, or use of this file, via any medium,
  * is strictly prohibited. See the LICENSE file for full terms.
  */
-// main.js - Main initialization and orchestration (enhanced with event stream)
+// main.js - Main initialization and orchestration (enhanced with event stream, fixed save, chat button)
 // Must be loaded last, after all other scripts
-
-// ========== SAFETY FALLBACKS ==========
-// Ensure ModalManager exists (in case modals.js failed)
-if (typeof ModalManager === 'undefined') {
-    window.ModalManager = {
-        current: null,
-        open: function(modalId) {
-            const modal = document.getElementById(modalId);
-            if (modal) modal.classList.remove('hidden');
-            this.current = modalId;
-        },
-        close: function(modalId) {
-            const modal = document.getElementById(modalId || this.current);
-            if (modal) modal.classList.add('hidden');
-            if (!modalId || modalId === this.current) this.current = null;
-        }
-    };
-}
-
-// Ensure openEventModal exists (in case modals.js failed)
-if (typeof openEventModal === 'undefined') {
-    window.openEventModal = function(event, dateStr) {
-        console.warn('openEventModal not yet defined, retrying in 100ms...');
-        setTimeout(() => {
-            if (typeof openEventModal !== 'undefined') openEventModal(event, dateStr);
-            else alert('Modal system not loaded. Please refresh the page.');
-        }, 100);
-    };
-}
 
 // ========== HELPER FUNCTIONS ==========
 async function fullRefresh() {
@@ -45,7 +16,7 @@ async function fullRefresh() {
     await renderCalendar();
     updateNotifications();
     if (typeof updateLiveJSON === 'function') updateLiveJSON();
-    // Do NOT call debouncedOptimizerRun here – event stream handles reactivity
+    // Optimizer is now triggered by event stream; no manual call here
 }
 
 // ========== LOAD DATA ==========
@@ -165,7 +136,7 @@ async function showMainApp() {
     await fullRefresh();
     if (typeof scrollToNow === 'function') scrollToNow();
     showToast('Ready!', 'success');
-    // Run initial optimizer once (event stream will handle subsequent changes)
+    // Run initial optimizer once (event stream will handle subsequent)
     if (typeof runOptimizer === 'function') runOptimizer();
 }
 
@@ -220,21 +191,18 @@ function getTravelTime(eventId, fromPlaceId = currentPlaceId) {
     return custom ?? 15;
 }
 
-// ========== OPTIMIZER (Constraint Solver) ==========
+// ========== OPTIMIZER (uses Scheduler) ==========
 async function runOptimizer() {
-    if (optimizerLock) {
-        console.log('Optimizer already running, skipping...');
-        return;
-    }
+    if (optimizerLock) return;
     optimizerLock = true;
     try {
         if (typeof Scheduler !== 'undefined' && Scheduler.run) {
-            showToast('Optimizing your schedule...', 'info');
+            showToast('Optimizing schedule...', 'info');
             await Scheduler.run();
             showToast('Schedule optimized!', 'success');
         } else {
             console.warn('Scheduler module not loaded');
-            showToast('Optimizer not available. Please refresh the page.', 'error');
+            showToast('Optimizer not available', 'error');
         }
     } catch (err) {
         console.error('Optimizer failed:', err);
@@ -347,12 +315,10 @@ window.dragstart_handler = function(ev) {
     }));
     ev.dataTransfer.effectAllowed = "move";
 };
-
 window.dragover_handler = function(ev) {
     ev.preventDefault();
     ev.dataTransfer.dropEffect = "move";
 };
-
 window.drop_handler = async function(ev) {
     ev.preventDefault();
     const targetCell = ev.target.closest('.day-cell');
@@ -453,26 +419,28 @@ window.addEventListener('DOMContentLoaded', async () => {
         }
         renderCalendar();
     });
-const fabButton = document.getElementById('fab');
-if (fabButton) {
-    // Remove any existing listeners to avoid duplicates
-    const newFab = fabButton.cloneNode(true);
-    fabButton.parentNode.replaceChild(newFab, fabButton);
-    newFab.addEventListener('click', (e) => {
-        e.stopPropagation();
-        console.log('FAB clicked');
-        if (typeof openEventModal === 'function') {
-            openEventModal();
-        } else {
-            console.error('openEventModal not defined');
-            showToast('Cannot open event modal - please refresh', 'error');
-        }
-    });
-}
+    const fabButton = document.getElementById('fab');
+    if (fabButton) {
+        fabButton.addEventListener('click', (e) => {
+            e.stopPropagation();
+            console.log('FAB clicked, opening event modal');
+            if (typeof openEventModal === 'function') openEventModal();
+            else showToast('Cannot open event modal', 'error');
+        });
+    }
     document.getElementById('gpsUpdateBtn')?.addEventListener('click', () => {
         if (gpsWatchId) stopGPS();
         else startGPS();
     });
+
+    // Chat button wiring
+    const chatBtn = document.getElementById('chatBtn');
+    if (chatBtn) {
+        chatBtn.addEventListener('click', () => {
+            if (typeof ChatUI !== 'undefined') ChatUI.toggle();
+            else showToast('Chat module not loaded', 'error');
+        });
+    }
 
     const todoPanelToggle = document.getElementById('todoPanelToggle');
     if (todoPanelToggle) todoPanelToggle.addEventListener('click', () => TodoPanel.toggle());
@@ -664,25 +632,28 @@ if (fabButton) {
     });
     switchTab('preferences');
 
+    // ========== CLEAN SAVE EVENT LOGIC (uses EventManager) ==========
     const saveEventBtn = document.getElementById('saveEventBtn');
     if (saveEventBtn) {
-        saveEventBtn.addEventListener('click', async () => {
-            const spinner = saveEventBtn.querySelector('.fa-spinner');
-            saveEventBtn.disabled = true;
+        // Replace with fresh clone to avoid duplicate listeners
+        const newSaveBtn = saveEventBtn.cloneNode(true);
+        saveEventBtn.parentNode.replaceChild(newSaveBtn, saveEventBtn);
+
+        newSaveBtn.addEventListener('click', async () => {
+            if (!validateEventForm()) return;
+            
+            const spinner = newSaveBtn.querySelector('.fa-spinner');
+            newSaveBtn.disabled = true;
             if (spinner) spinner.classList.remove('hidden');
+
             try {
-                if (!validateEventForm()) {
-                    saveEventBtn.disabled = false;
-                    if (spinner) spinner.classList.add('hidden');
-                    return;
-                }
                 const eventData = {
                     id: editingEventId || undefined,
                     name: document.getElementById('eventName').value.trim(),
                     openTime: document.getElementById('eventOpenTime').value,
                     closeTime: document.getElementById('eventCloseTime').value,
-                    minStay: parseInt(document.getElementById('eventMinStay').value),
-                    maxStay: parseInt(document.getElementById('eventMaxStay').value),
+                    minStay: parseInt(document.getElementById('eventMinStay').value) || 30,
+                    maxStay: parseInt(document.getElementById('eventMaxStay').value) || 120,
                     frequency: document.getElementById('eventFrequency').value,
                     scarce: document.getElementById('eventScarce').checked,
                     remindRecency: document.getElementById('eventRemindRecency').checked,
@@ -691,90 +662,72 @@ if (fabButton) {
                     notes: document.getElementById('eventNotes').value,
                     color: document.getElementById('eventColor').value,
                     startDate: editingDateStr || formatDate(new Date()),
-                    startTime: document.getElementById('eventOpenTime').value,
-                    endTime: fromMinutes(toMinutes(document.getElementById('eventOpenTime').value) + (parseInt(document.getElementById('eventMinStay').value) || 60)),
-                    priority: document.querySelectorAll('#eventPriorityStars .fa-star.selected').length,
-                    travelMins: 15,
-                    weeklyDays: (() => {
-                        const container = document.getElementById('weeklyDaysContainer');
-                        if (!container) return [];
-                        const checked = container.querySelectorAll('input[type="checkbox"]:checked');
-                        return Array.from(checked).map(cb => parseInt(cb.value, 10));
-                    })(),
+                    priority: document.querySelectorAll('#eventPriorityStars .fa-star.selected').length || 3,
+                    weeklyDays: Array.from(document.querySelectorAll('#weeklyDaysContainer input:checked')).map(cb => parseInt(cb.value)),
                     monthlyDay: parseInt(document.getElementById('monthlyDay').value) || 1,
-                    placeId: document.getElementById('eventPlaceId').value || null
+                    placeId: document.getElementById('eventPlaceId').value ? parseInt(document.getElementById('eventPlaceId').value) : null
                 };
-                const eventDateStr = editingDateStr || eventData.startDate;
-                const dayBusy = getBusyBlocksForDate(eventDateStr);
-                const dayEvents = getEventsForDate(eventDateStr);
-                const newStartMin = toMinutes(eventData.startTime);
-                const newEndMin = toMinutes(eventData.endTime);
-                let hasConflict = false;
-                let conflictMessage = '';
+                eventData.startTime = eventData.openTime;
+                eventData.endTime = fromMinutes(toMinutes(eventData.openTime) + eventData.minStay);
+
+                // Conflict detection
+                const dayBusy = getBusyBlocksForDate(eventData.startDate);
+                let hasConflict = false, conflictMsg = '', conflictBusyObj = null;
                 for (const busy of dayBusy) {
-                    const busyStart = toMinutes(busy.startTime);
-                    const busyEnd = toMinutes(busy.endTime);
-                    if (newStartMin < busyEnd && newEndMin > busyStart) {
+                    if (toMinutes(eventData.startTime) < toMinutes(busy.endTime) && toMinutes(eventData.endTime) > toMinutes(busy.startTime)) {
                         hasConflict = true;
-                        conflictMessage = `This event conflicts with "${busy.description || 'busy block'}" (${busy.startTime}–${busy.endTime}).`;
+                        conflictMsg = `Conflicts with busy block "${busy.description}"`;
+                        conflictBusyObj = busy;
                         break;
                     }
                 }
-                if (!hasConflict) {
-                    for (const ev of dayEvents) {
-                        if (editingEventId && ev.id === editingEventId) continue;
-                        const evStart = toMinutes(ev.startTime);
-                        const evEnd = toMinutes(ev.endTime);
-                        if (newStartMin < evEnd && newEndMin > evStart) {
-                            hasConflict = true;
-                            conflictMessage = `This event conflicts with "${ev.name}" (${ev.startTime}–${ev.endTime}).`;
-                            break;
-                        }
-                    }
-                }
+
                 if (hasConflict) {
                     const userConfirmed = await new Promise((resolve) => {
-                        if (typeof showConflictModal === 'function') {
-                            showConflictModal({
-                                message: conflictMessage,
-                                onResolve: () => resolve(true),
-                                onIgnore: () => resolve(false)
-                            });
-                        } else {
-                            const result = confirm(conflictMessage + '\n\nSave anyway?');
-                            resolve(result);
-                        }
+                        showConflictModal({
+                            message: conflictMsg,
+                            busyObj: conflictBusyObj,
+                            eventObj: eventData,
+                            onResolve: () => resolve(true),
+                            onIgnore: () => resolve(false)
+                        });
                     });
-                    if (!userConfirmed) {
-                        if (eventDraftManager) await eventDraftManager.saveDraft();
-                        return;
-                    }
+                    if (!userConfirmed) throw new Error("Conflict check aborted save");
                 }
+
+                // Save via EventManager
                 if (editingEventId && editingDateStr) {
-                    const key = `${editingEventId}_${editingDateStr}`;
-                    await putRecord('overrides', { compositeKey: key, eventId: editingEventId, dateStr: editingDateStr, type: 'exception', newEvent: eventData });
-                    showToast(`Updated occurrence of ${eventData.name}`);
-                    await pushAction(`Override occurrence of ${eventData.name}`, async () => {}, async () => {});
+                    await EventManager.applyOverride(editingEventId, editingDateStr, 'exception', eventData);
                 } else if (editingEventId) {
-                    await putRecord('events', eventData);
-                    await pushAction(`Edit event ${eventData.name}`, async () => {}, async () => {});
+                    await EventManager.updateEvent(editingEventId, eventData);
                 } else {
-                    await addRecord('events', eventData);
-                    await pushAction(`Add event ${eventData.name}`, async () => {}, async () => {});
+                    await EventManager.addEvent(eventData);
                 }
+
                 if (eventDraftManager) await eventDraftManager.clearDraft();
-                await fullRefresh();
                 ModalManager.close('eventModal');
+                await fullRefresh();
+            } catch (err) {
+                if (err.message !== "Conflict check aborted save") {
+                    console.error(err);
+                    showToast(err.message, 'error');
+                }
             } finally {
-                saveEventBtn.disabled = false;
+                newSaveBtn.disabled = false;
                 if (spinner) spinner.classList.add('hidden');
             }
         });
     }
 
+    // Save todo
     const saveTodoBtn = document.getElementById('saveTodoBtn');
-    if (saveTodoBtn) saveTodoBtn.addEventListener('click', async () => { await saveTodoModal(); });
+    if (saveTodoBtn) {
+        const newTodoBtn = saveTodoBtn.cloneNode(true);
+        saveTodoBtn.parentNode.replaceChild(newTodoBtn, saveTodoBtn);
+        newTodoBtn.addEventListener('click', async () => { await saveTodoModal(); });
+    }
 
+    // Save busy
     async function saveBusyBlockFromForm() {
         const busy = {
             description: document.getElementById('busyDescription').value,
@@ -798,20 +751,30 @@ if (fabButton) {
         await fullRefresh();
         return busy;
     }
-    document.getElementById('saveBusyBtn')?.addEventListener('click', async () => {
-        await saveBusyBlockFromForm();
-        ModalManager.close('busyModal');
-    });
-    document.getElementById('saveAddAnotherBusyBtn')?.addEventListener('click', async () => {
-        await saveBusyBlockFromForm();
-        document.getElementById('busyDescription').value = '';
-        document.getElementById('busyDate').value = '';
-        document.getElementById('busyStartTime').value = '09:00';
-        document.getElementById('busyEndTime').value = '17:00';
-        document.querySelectorAll('#busyDaysCheckboxes input').forEach(cb => cb.checked = false);
-        document.getElementById('busyDescription').focus();
-        showToast('Saved — add another', 'success');
-    });
+    const saveBusyBtn = document.getElementById('saveBusyBtn');
+    if (saveBusyBtn) {
+        const newBusyBtn = saveBusyBtn.cloneNode(true);
+        saveBusyBtn.parentNode.replaceChild(newBusyBtn, saveBusyBtn);
+        newBusyBtn.addEventListener('click', async () => {
+            await saveBusyBlockFromForm();
+            ModalManager.close('busyModal');
+        });
+    }
+    const saveAddAnotherBtn = document.getElementById('saveAddAnotherBusyBtn');
+    if (saveAddAnotherBtn) {
+        const newAddAnother = saveAddAnotherBtn.cloneNode(true);
+        saveAddAnotherBtn.parentNode.replaceChild(newAddAnother, saveAddAnotherBtn);
+        newAddAnother.addEventListener('click', async () => {
+            await saveBusyBlockFromForm();
+            document.getElementById('busyDescription').value = '';
+            document.getElementById('busyDate').value = '';
+            document.getElementById('busyStartTime').value = '09:00';
+            document.getElementById('busyEndTime').value = '17:00';
+            document.querySelectorAll('#busyDaysCheckboxes input').forEach(cb => cb.checked = false);
+            document.getElementById('busyDescription').focus();
+            showToast('Saved — add another', 'success');
+        });
+    }
 
     document.getElementById('busyRecurrence')?.addEventListener('change', (e) => {
         const val = e.target.value;
@@ -821,6 +784,7 @@ if (fabButton) {
     });
     document.getElementById('busyRecurrence')?.dispatchEvent(new Event('change'));
 
+    // Modal close/cancel
     const cancelEventBtn = document.getElementById('cancelEventBtn');
     const closeEventModalBtn = document.getElementById('closeEventModal');
     if (cancelEventBtn) cancelEventBtn.addEventListener('click', (e) => { e.preventDefault(); closeEventModalWithCheck(); });
@@ -839,6 +803,7 @@ if (fabButton) {
         showToast('Draft cleared', 'success');
     });
 
+    // Settings listeners
     document.getElementById('restPolicySelect')?.addEventListener('change', async (e) => {
         restPolicy = e.target.value;
         await setSetting('restPolicy', restPolicy);
