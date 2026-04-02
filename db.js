@@ -1,6 +1,6 @@
 /*
  * Smart Scheduler – Enhanced IndexedDB Layer
- * Copyright (c) 2026. All rights reserved.
+ * Copyright (c) 2026 Kenna Teklu. All rights reserved.
  *
  * This module adds:
  * - Write‑ahead log (WAL) for crash recovery
@@ -122,8 +122,8 @@ async function addToWAL(operation, storeName, key, value) {
         operation, // 'add', 'put', 'delete', 'clear'
         storeName,
         key,
-        value: value ? JSON.parse(JSON.stringify(value)) : null,
-        sequence: null
+        value: value ? JSON.parse(JSON.stringify(value)) : null
+        // Do NOT set 'sequence' – let IndexedDB auto-generate it
     };
     walEntries.push(entry);
     if (walEntries.length >= WAL_MAX_SIZE) {
@@ -132,7 +132,7 @@ async function addToWAL(operation, storeName, key, value) {
     // Also store in IndexedDB WAL store for persistence
     try {
         const store = await getStore('wal', 'readwrite');
-        entry.sequence = await idbRequest(store.add(entry));
+        await idbRequest(store.add(entry));
     } catch (e) {
         console.warn('Failed to write to WAL store', e);
     }
