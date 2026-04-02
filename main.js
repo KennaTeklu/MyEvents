@@ -76,7 +76,7 @@ let optimizerDebounceTimer = null;
 let lastOptimizerRunTime = 0;
 const OPTIMIZER_DEBOUNCE_MS = 2000;
 const OPTIMIZER_MIN_INTERVAL_MS = 10000;
-
+ 
 function debouncedOptimizerRun() {
     const now = Date.now();
     // Prevent too-frequent runs (minimum interval)
