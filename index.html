@@ -96,14 +96,16 @@
         </div>
     </div>
 
-        <!-- Bottom Right Interaction Hub -->
-    <div id="fabWrapper" class="fixed bottom-6 right-6 z-50 flex flex-col items-end gap-4 hidden">
-        
-        <!-- Chat Toggle (Moved higher to prevent overlap) -->
-        <button id="chatBtn" class="bg-blue-100 dark:bg-gray-700 text-blue-600 w-12 h-12 rounded-full shadow-lg flex items-center justify-center relative hover:scale-110 transition-all border border-blue-200" title="Piper Assistant">
-            <i class="fas fa-robot text-xl"></i>
+        <!-- Bottom Left Chat Assistant -->
+    <div id="chatWrapper" class="fixed bottom-6 left-6 z-50">
+        <button id="chatBtn" class="bg-white dark:bg-gray-700 text-blue-600 w-14 h-14 rounded-full shadow-xl flex items-center justify-center relative hover:scale-105 transition-transform border border-blue-100" title="Piper Assistant">
+            <i class="fas fa-robot text-2xl"></i>
             <span id="chatBadge" class="absolute -top-1 -right-1 bg-red-500 text-white text-[10px] rounded-full w-5 h-5 flex items-center justify-center border-2 border-white hidden">0</span>
         </button>
+    </div>
+
+    <!-- Bottom Right Interaction Hub -->
+    <div id="fabWrapper" class="fixed bottom-6 right-6 z-50 flex flex-col items-end gap-4 hidden">
 
         <!-- FAB Container -->
         <div class="relative">

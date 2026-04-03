@@ -465,8 +465,57 @@ window.addEventListener('DOMContentLoaded', async () => {
     }
 
     document.getElementById('gpsUpdateBtn')?.addEventListener('click', () => {
-        if (gpsWatchId) stopGPS();
-        else startGPS();
+        if (!navigator.geolocation) {
+            showToast('GPS not supported on this device', 'error');
+            return;
+        }
+        
+        showToast('Detecting location...', 'info');
+        
+        navigator.geolocation.getCurrentPosition(async (position) => {
+            const lat = position.coords.latitude;
+            const lon = position.coords.longitude;
+            currentLocation.lat = lat;
+            currentLocation.lon = lon;
+            currentLocation.timestamp = new Date();
+
+            let matched = null;
+            let closest = null;
+            let closestDist = Infinity;
+
+            for (let p of places) {
+                if (p.lat && p.lon) {
+                    const d = getDistance(lat, lon, p.lat, p.lon);
+                    if (d <= p.radius) {
+                        matched = p;
+                        break;
+                    }
+                    if (d < closestDist) {
+                        closestDist = d;
+                        closest = p;
+                    }
+                }
+            }
+
+            if (matched) {
+                // We are inside an existing place!
+                currentPlaceId = matched.id;
+                const placeDisplay = document.getElementById('currentPlaceDisplay');
+                if (placeDisplay) placeDisplay.innerText = `📍 ${matched.name}`;
+                showToast(`📍 Updated: You are at ${matched.name}`, 'success');
+            } else {
+                // We are outside all known radii. Show disambiguation modal.
+                if (closest && closestDist < 300) { 
+                    // Close enough to guess a place (under 300m)
+                    showGPSModal(closest, closestDist, lat, lon);
+                } else {
+                    // Completely new location
+                    showGPSModal(null, null, lat, lon); 
+                }
+            }
+        }, (err) => {
+            showToast(`Location error: ${err.message}`, 'error');
+        }, { enableHighAccuracy: true, timeout: 10000 });
     });
 
     // Chat button wiring
@@ -969,82 +1018,6 @@ window.addEventListener('DOMContentLoaded', async () => {
         document.getElementById('advancedOptions')?.classList.toggle('hidden');
     });
 
-    document.getElementById('exportDataBtn')?.addEventListener('click', async () => {
-        const data = {
-            events, busyBlocks, places, overrides: Array.from(overrides.values()),
-            todos, scheduledEvents, learningData, locationHistory, userFeedback,
-            settings: {
-                restPolicy, farMinutes, firstDayOfWeek, timeFormat, darkMode,
-                notifyDayBefore, notifyMinutesBefore, notifyTravelLead,
-                planningHorizonWeeks, userSettings
-            }
-        };
-        const blob = new Blob([JSON.stringify(data)], { type: 'application/json' });
-        const a = document.createElement('a');
-        const date = new Date().toISOString().split('T')[0];
-        a.href = URL.createObjectURL(blob);
-        a.download = `scheduler_full_backup_${date}.json`;
-        a.click();
-        URL.revokeObjectURL(a.href);
-    });
-    document.getElementById('importDataBtn')?.addEventListener('click', () => {
-        const input = document.createElement('input');
-        input.type = 'file';
-        input.accept = 'application/json';
-        input.onchange = async (e) => {
-            const file = e.target.files[0];
-            if (!file) return;
-            try {
-                const text = await file.text();
-                const data = JSON.parse(text);
-                if (!data.events) throw new Error('Invalid format');
-                if (confirm(`File contains ${data.events.length} events, ${data.busyBlocks?.length || 0} busy blocks, ${data.todos?.length || 0} to‑dos. Import will replace all current data. Continue?`)) {
-                    showNukeAnimation();
-                    await clearAllStores();
-                    for (let ev of data.events) await addRecord('events', ev);
-                    for (let bb of data.busyBlocks || []) await addRecord('busyBlocks', bb);
-                    for (let pl of data.places || []) await addRecord('places', pl);
-                    for (let ov of data.overrides || []) await putRecord('overrides', ov);
-                    for (let td of data.todos || []) await addRecord('todos', td);
-                    for (let se of data.scheduledEvents || []) await addRecord('scheduledEvents', se);
-                    for (let ld of data.learningData?.eventDurations || []) await addRecord('learningData', ld);
-                    for (let lt of data.learningData?.travelTimes || []) await addRecord('learningData', lt);
-                    for (let lp of data.learningData?.preferences || []) await addRecord('learningData', lp);
-                    for (let lh of data.locationHistory || []) await addRecord('locationHistory', lh);
-                    for (let uf of data.userFeedback || []) await addRecord('userFeedback', uf);
-                    if (data.settings) {
-                        await setSetting('restPolicy', data.settings.restPolicy);
-                        await setSetting('farMinutes', data.settings.farMinutes);
-                        await setSetting('firstDayOfWeek', data.settings.firstDayOfWeek);
-                        await setSetting('timeFormat', data.settings.timeFormat);
-                        await setSetting('darkMode', data.settings.darkMode);
-                        await setSetting('notifyDayBefore', data.settings.notifyDayBefore);
-                        await setSetting('notifyMinutesBefore', data.settings.notifyMinutesBefore);
-                        await setSetting('notifyTravelLead', data.settings.notifyTravelLead);
-                        await setSetting('planningHorizonWeeks', data.settings.planningHorizonWeeks);
-                        if (data.settings.userSettings) await setSetting('userSettings', data.settings.userSettings);
-                    }
-                    await fullRefresh();
-                    showToast('Import successful', 'success');
-                }
-            } catch (err) {
-                showToast('Import failed: ' + err.message, 'error');
-            }
-        };
-        input.click();
-    });
-    document.getElementById('resetAllDataBtn')?.addEventListener('click', async () => {
-        const choice = confirm('Delete ALL data? This cannot be undone. Click OK to reset, Cancel to export first.');
-        if (choice) {
-            showNukeAnimation();
-            await clearAllStores();
-            localStorage.clear();
-            location.reload();
-        } else {
-            document.getElementById('exportDataBtn').click();
-        }
-    });
-
     let touchStartX = 0, touchEndX = 0;
     const calendarContainer = document.getElementById('calendarContainer');
     if (calendarContainer) {
@@ -1070,3 +1043,125 @@ window.addEventListener('DOMContentLoaded', async () => {
         setTimeout(() => Notification.requestPermission(), 3000);
     }
 });
+
+// ========== GPS DISAMBIGUATION MODAL ==========
+function showGPSModal(place, distance, lat, lon) {
+    const modal = document.getElementById('gpsDisambigModal');
+    if (!modal) return;
+
+    const placeInfo = modal.querySelector('.gps-place-info');
+    const widenBtn = modal.querySelector('#gpsWidenRadius');
+    const createBtn = modal.querySelector('#gpsCreatePlace');
+    const sublocationBtn = modal.querySelector('#gpsCreateSublocation');
+
+    // If near a known place (distance < 300m)
+    if (place) {
+        placeInfo.style.display = 'flex';
+        modal.querySelector('.place-name').textContent = place.name;
+        modal.querySelector('.distance').textContent = Math.round(distance);
+        widenBtn.style.display = 'flex';
+        if (sublocationBtn) sublocationBtn.style.display = 'flex';
+        
+        widenBtn.onclick = async () => {
+            place.radius = Math.max(place.radius, distance + 10);
+            await putRecord('places', place);
+            await loadData();
+            showToast(`Radius of ${place.name} expanded to ${Math.round(place.radius)}m`, 'success');
+            ModalManager.close('gpsDisambigModal');
+        };
+
+        if (sublocationBtn) {
+            sublocationBtn.onclick = () => {
+                ModalManager.close('gpsDisambigModal');
+                showSublocationModal(place, lat, lon, async (updatedPlace, subName) => {
+                    if (updatedPlace && subName) {
+                        await loadData();
+                        showToast(`Added sublocation: ${subName}`, 'success');
+                    }
+                });
+            };
+        }
+    } else {
+        // Completely new area
+        placeInfo.style.display = 'none';
+        widenBtn.style.display = 'none';
+        if (sublocationBtn) sublocationBtn.style.display = 'none';
+    }
+
+    // Always allow creating a brand new independent place
+    createBtn.onclick = async () => {
+        const newName = prompt('You are in a new area. What is this place called? (e.g., Work, Gym, Library)', 'New Place');
+        if (newName && newName.trim()) {
+            const newPlace = { name: newName.trim(), lat, lon, radius: 40, travelToEvent: {} };
+            const id = await addRecord('places', newPlace);
+            places.push({ ...newPlace, id });
+            
+            currentPlaceId = id;
+            const placeDisplay = document.getElementById('currentPlaceDisplay');
+            if (placeDisplay) placeDisplay.innerText = `📍 ${newPlace.name}`;
+            
+            await loadData();
+            showToast(`Location saved as: ${newName}`, 'success');
+        }
+        ModalManager.close('gpsDisambigModal');
+    };
+
+    ModalManager.open('gpsDisambigModal');
+}
+
+// ========== SUBLOCATION MODAL ==========
+function showSublocationModal(place, lat, lon, onConfirm) {
+    const modal = document.getElementById('sublocationModal');
+    if (!modal) return;
+
+    const placeNameSpan = modal.querySelector('.place-name');
+    if (placeNameSpan) placeNameSpan.textContent = place.name;
+
+    const input = modal.querySelector('#sublocationName');
+    const saveBtn = modal.querySelector('#saveSublocationBtn');
+    const cancelBtn = modal.querySelector('#cancelSublocationBtn');
+
+    if (input) input.value = '';
+
+    const saveHandler = async () => {
+        const name = input ? input.value.trim() : '';
+        if (!name) {
+            showToast('Please enter a name for this spot', 'error');
+            return;
+        }
+        if (!place.sublocations) place.sublocations = [];
+        place.sublocations.push({ id: generateUUID(), name, lat, lon });
+        await putRecord('places', place);
+        if (onConfirm) onConfirm(place, name);
+        ModalManager.close('sublocationModal');
+    };
+    const cancelHandler = () => {
+        if (onConfirm) onConfirm(null, null);
+        ModalManager.close('sublocationModal');
+    };
+
+    saveBtn.onclick = saveHandler;
+    cancelBtn.onclick = cancelHandler;
+
+    ModalManager.open('sublocationModal');
+}
+
+// ========== UNDO TOAST HELPER ==========
+function showUndoToast(action, data) {
+    const toastArea = document.getElementById('toastArea');
+    if (!toastArea) return;
+    const toast = document.createElement('div');
+    toast.className = 'toast-undo';
+    toast.innerHTML = `
+        <span class="toast-message">${action} action performed</span>
+        <button class="toast-undo-btn">Undo</button>
+    `;
+    toastArea.appendChild(toast);
+    const undoBtn = toast.querySelector('.toast-undo-btn');
+    undoBtn.onclick = async () => {
+        await undo();
+        toast.remove();
+        showToast('Undone successfully', 'success');
+    };
+    setTimeout(() => toast.remove(), 6000);
+}
