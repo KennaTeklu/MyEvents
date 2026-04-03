@@ -265,9 +265,12 @@ function closeEventModalWithCheck() {
         if (existing) return; 
         
         const modal = document.getElementById('eventModal');
-        const target = modal.querySelector('.modal-header') || modal.querySelector('.modal-card');
         
-        if (!target) {
+        // Safely find the header by its tailwind classes or fallback to the card itself
+        const header = modal.querySelector('.flex.justify-between.items-center');
+        const card = modal.querySelector('.modal-card');
+        
+        if (!card) {
             ModalManager.close('eventModal');
             return;
         }
@@ -286,7 +289,11 @@ function closeEventModalWithCheck() {
             </div>
         `;
         
-        target.insertAdjacentElement('afterend', warning);
+        if (header) {
+            header.insertAdjacentElement('afterend', warning);
+        } else {
+            card.prepend(warning);
+        }
         
         document.getElementById('discardChangesBtn').onclick = async () => {
             warning.remove();
@@ -421,11 +428,31 @@ function openBusyModal(busy = null, dateStr = null) {
                 // Draft logic warning applies to busy modal too now
                 const banner = document.createElement('div');
                 banner.id = 'dirtyWarningBusy';
-                banner.className = 'bg-yellow-50 text-yellow-700 p-2 text-xs mb-3 rounded flex justify-between items-center';
-                banner.innerHTML = `<span>Draft restored</span> <button onclick="this.parentElement.remove(); busyDraftManager.clearDraft();" class="underline">Clear</button>`;
-                const header = document.getElementById('busyModal').querySelector('.modal-header');
-                if(!document.getElementById('dirtyWarningBusy')) header.insertAdjacentElement('afterend', banner);
+                banner.className = 'bg-yellow-50 border-l-4 border-yellow-500 text-yellow-700 p-3 text-sm mb-4 rounded shadow-sm flex justify-between items-center';
+                banner.innerHTML = `
+                    <div class="flex items-center gap-2">
+                        <i class="fas fa-file-signature"></i>
+                        <span class="font-medium">Draft restored</span>
+                    </div>
+                    <button type="button" onclick="this.closest('#dirtyWarningBusy').remove(); if(window.busyDraftManager) window.busyDraftManager.clearDraft();" class="bg-white px-2 py-1 rounded border border-yellow-200 hover:bg-yellow-100 transition font-bold text-xs">Clear</button>
+                `;
+                
+                const modal = document.getElementById('busyModal');
+                // Safely find the header by its tailwind classes or fallback to the card itself
+                const header = modal.querySelector('.flex.justify-between.items-center');
+                const card = modal.querySelector('.modal-card');
+                
+                if (!document.getElementById('dirtyWarningBusy')) {
+                    if (header) {
+                        header.insertAdjacentElement('afterend', banner);
+                    } else if (card) {
+                        card.prepend(banner);
+                    }
+                }
             }
+            ModalManager.open('busyModal');
+        }).catch(err => {
+            console.error('Failed to load busy draft:', err);
             ModalManager.open('busyModal');
         });
     } else {
