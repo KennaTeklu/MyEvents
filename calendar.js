@@ -540,6 +540,96 @@ async function renderDayView(container) {
     }
 }
 
+// ========== CALENDAR CLICK HANDLER (Empty Space) ==========
+document.addEventListener('click', (e) => {
+    // Only trigger if clicking directly on the day-cell, not on an event block inside it
+    if (e.target.classList.contains('day-cell')) {
+        const dateStr = e.target.dataset.date;
+        if (!dateStr) return;
+
+        // Calculate clicked time based on Y offset
+        const rect = e.target.getBoundingClientRect();
+        const offsetY = e.clientY - rect.top;
+        
+        // Based on rendering logic: top = (startMin - earliestHour*60) * PIXELS_PER_MIN
+        // We need to reverse engineer earliestHour. Look at time-col first child.
+        const timeCol = document.querySelector('.time-col > div');
+        let earliestHour = 0;
+        if (timeCol) {
+            const timeText = timeCol.textContent.trim();
+            const parsed = parseTime(timeText); // Utility function
+            if (parsed !== null) earliestHour = Math.floor(parsed / 60);
+        }
+
+        // Calculate raw minutes, round to nearest 15 mins for neatness
+        let rawMin = (offsetY / PIXELS_PER_MIN) + (earliestHour * 60);
+        let roundedMin = Math.round(rawMin / 15) * 15;
+        
+        // Show Bottom Sheet Custom Choice Menu
+        showCreationBottomSheet(dateStr, roundedMin);
+    }
+});
+
+// Modified Bottom Sheet for Creation Choices
+function showCreationBottomSheet(dateStr, startMin) {
+    const sheet = document.getElementById('bottomSheet');
+    if (!sheet) return;
+
+    const timeStr = formatTime(startMin);
+    const endStr = formatTime(startMin + 60); // Default 1 hr
+
+    sheet.querySelector('.sheet-title').textContent = `New Activity`;
+    sheet.querySelector('.sheet-desc').textContent = `${formatDateDisplay(dateStr)} at ${timeStr}`;
+
+    // Inject Creation Buttons dynamically
+    const actionsContainer = sheet.querySelector('.sheet-actions');
+    actionsContainer.innerHTML = `
+        <button id="sheetAddEvent" class="sheet-action"><span class="action-icon text-blue-600 bg-blue-100"><i class="fas fa-magic"></i></span> Schedule Event (Optimized)</button>
+        <button id="sheetAddBusy" class="sheet-action"><span class="action-icon text-red-600 bg-red-100"><i class="fas fa-ban"></i></span> Block Busy Time</button>
+        <button id="sheetAddTodo" class="sheet-action"><span class="action-icon text-green-600 bg-green-100"><i class="fas fa-check-square"></i></span> Add To-do Here</button>
+    `;
+
+    document.getElementById('sheetAddEvent').onclick = () => {
+        closeBottomSheet();
+        if (typeof openEventModal === 'function') {
+            // Set global temporary vars to prefill the modal
+            window._prefillEventDate = dateStr;
+            window._prefillEventStart = fromMinutes(startMin);
+            window._prefillEventEnd = fromMinutes(startMin + 60);
+            openEventModal();
+            // Actually apply them (since openEventModal reconstructs the form)
+            setTimeout(() => {
+                document.getElementById('eventOpenTime').value = window._prefillEventStart;
+                document.getElementById('eventCloseTime').value = window._prefillEventEnd;
+            }, 50);
+        }
+    };
+
+    document.getElementById('sheetAddBusy').onclick = () => {
+        closeBottomSheet();
+        if (typeof openBusyModal === 'function') {
+            openBusyModal(null, dateStr);
+            setTimeout(() => {
+                document.getElementById('busyStartTime').value = fromMinutes(startMin);
+                document.getElementById('busyEndTime').value = fromMinutes(startMin + 60);
+            }, 50);
+        }
+    };
+
+    document.getElementById('sheetAddTodo').onclick = () => {
+        closeBottomSheet();
+        if (typeof openTodoModal === 'function') {
+            openTodoModal({ dueDate: dateStr });
+        }
+    };
+
+    // Show sheet
+    sheet.classList.add('open');
+    const backdrop = document.getElementById('bottomSheetBackdrop');
+    backdrop.classList.add('active');
+    backdrop.onclick = closeBottomSheet;
+}
+
 // ========== EMPTY STATE ==========
 function renderEmptyState(container) {
     const emptyDiv = document.createElement('div');

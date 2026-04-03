@@ -75,16 +75,15 @@
                 <button id="gpsUpdateBtn" class="text-gray-500 hover:text-blue-600 text-sm"><i class="fas fa-sync-alt"></i> Update location</button>
                 <div id="dateRangeDisplay" class="text-sm font-medium text-gray-600 dark:text-gray-300 ml-2"></div>
             </div>
-            <div class="flex gap-2 mt-2 sm:mt-0">
-                <button id="undoBtn" class="px-3 py-1 bg-gray-100 dark:bg-gray-700 rounded-full disabled:opacity-50" title="Undo"><i class="fas fa-undo"></i></button>
-                <button id="redoBtn" class="px-3 py-1 bg-gray-100 dark:bg-gray-700 rounded-full disabled:opacity-50" title="Redo"><i class="fas fa-redo"></i></button>
-                <button id="redoBtn" class="px-3 py-1 bg-gray-100 dark:bg-gray-700 rounded-full disabled:opacity-50"><i class="fas fa-redo"></i> Redo</button>
+             <div class="flex gap-2 mt-2 sm:mt-0 overflow-x-auto whitespace-nowrap pb-1 no-scrollbar items-center max-w-full">
+                <button id="undoBtn" class="hidden px-3 py-1 bg-gray-100 dark:bg-gray-700 rounded-full transition-all" title="Undo"><i class="fas fa-undo"></i></button>
+                <button id="redoBtn" class="hidden px-3 py-1 bg-gray-100 dark:bg-gray-700 rounded-full transition-all" title="Redo"><i class="fas fa-redo"></i></button>
                 <button id="prevBtn" class="px-3 py-1 bg-gray-100 dark:bg-gray-700 rounded-full"><i class="fas fa-chevron-left"></i></button>
                 <button id="todayBtn" class="px-3 py-1 bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 rounded-full"><i class="fas fa-calendar-day"></i> Today</button>
                 <button id="nextBtn" class="px-3 py-1 bg-gray-100 dark:bg-gray-700 rounded-full"><i class="fas fa-chevron-right"></i></button>
                 <button id="viewToggleBtn" class="px-3 py-1 bg-gray-100 dark:bg-gray-700 rounded-full"><i class="fas fa-calendar-week"></i> Week</button>
-                <button id="settingsBtn" class="text-gray-500 hover:text-gray-700 text-xl"><i class="fas fa-cog"></i></button>
-                <button id="notifBell" class="text-gray-500 hover:text-gray-700 text-xl relative" aria-label="Notifications">
+                <button id="settingsBtn" class="text-gray-500 hover:text-blue-600 text-xl px-2"><i class="fas fa-cog"></i></button>
+                <button id="notifBell" class="text-gray-500 hover:text-blue-600 text-xl relative px-2" aria-label="Notifications">
                     <i class="fas fa-bell"></i>
                     <span id="notifBadge" class="hidden">0</span>
                 </button>
@@ -98,11 +97,11 @@
     </div>
 
         <!-- Bottom Right Interaction Hub -->
-    <div id="fabWrapper" class="fixed bottom-6 right-6 z-50 flex flex-col items-end gap-3 hidden">
+    <div id="fabWrapper" class="fixed bottom-6 right-6 z-50 flex flex-col items-end gap-4 hidden">
         
-        <!-- Chat Toggle (Above the + button) -->
-        <button id="chatBtn" class="bg-white dark:bg-gray-700 text-blue-600 w-12 h-12 rounded-full shadow-lg flex items-center justify-center relative hover:scale-110 transition-all border border-blue-100">
-            <i class="fas fa-comment-dots text-xl"></i>
+        <!-- Chat Toggle (Moved higher to prevent overlap) -->
+        <button id="chatBtn" class="bg-blue-100 dark:bg-gray-700 text-blue-600 w-12 h-12 rounded-full shadow-lg flex items-center justify-center relative hover:scale-110 transition-all border border-blue-200" title="Piper Assistant">
+            <i class="fas fa-robot text-xl"></i>
             <span id="chatBadge" class="absolute -top-1 -right-1 bg-red-500 text-white text-[10px] rounded-full w-5 h-5 flex items-center justify-center border-2 border-white hidden">0</span>
         </button>
 
@@ -177,15 +176,26 @@
                 </div>
                 <input type="hidden" id="eventColor" value="#3b82f6">
                 <button id="toggleAdvancedBtn" type="button" class="text-sm text-blue-600">Show advanced options</button>
-                <div id="advancedOptions" class="hidden space-y-3 mt-2">
-                    <select id="eventFrequency" class="w-full border rounded-xl p-2">
-                        <option value="unlimited">Unlimited</option>
-                        <option value="1perWeek">Once per week</option>
-                        <option value="2perWeek">Twice per week</option>
-                        <option value="1perMonth">Once per month</option>
+                <div id="advancedOptions" class="hidden space-y-3 mt-2 bg-gray-50 dark:bg-gray-800 p-3 rounded-lg border border-gray-200 dark:border-gray-700">
+                    <div>
+                        <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Rest & Recovery</label>
+                        <select id="eventRestPolicy" class="w-full border rounded-xl p-2 bg-white dark:bg-gray-900">
+                            <option value="global">Use Global Default Settings</option>
+                            <option value="home_15">Go Home, Rest 15 mins</option>
+                            <option value="home_30">Go Home, Rest 30 mins</option>
+                            <option value="stay_15">Rest 15 mins at current location</option>
+                            <option value="none">No rest needed, go immediately</option>
+                        </select>
+                    </div>
+                    <div class="h-px bg-gray-200 dark:bg-gray-700 my-2"></div>
+                    <select id="eventFrequency" class="w-full border rounded-xl p-2 bg-white dark:bg-gray-900">
+                        <option value="unlimited">Repeat Frequency: Unlimited</option>
+                        <option value="1perWeek">Limit: Once per week</option>
+                        <option value="2perWeek">Limit: Twice per week</option>
+                        <option value="1perMonth">Limit: Once per month</option>
                     </select>
-                    <div class="flex items-center gap-2"><input type="checkbox" id="eventScarce"> <label>Prioritize (scarce event)</label></div>
-                    <div class="flex items-center gap-2"><input type="checkbox" id="eventRemindRecency"> <label>Remind if not attended for a while</label></div>
+                    <div class="flex items-center gap-2"><input type="checkbox" id="eventScarce"> <label class="text-sm">Prioritize (Scarce/Rare event)</label></div>
+                    <div class="flex items-center gap-2"><input type="checkbox" id="eventRemindRecency"> <label class="text-sm">Remind if neglected for a while</label></div>
                     <div>
                         <label class="block text-sm">Priority</label>
                         <div class="flex gap-1" id="eventPriorityStars">
@@ -215,16 +225,31 @@
                 <button id="closeBusyModal" class="text-gray-400 hover:text-gray-600 text-2xl">&times;</button>
             </div>
             <div class="space-y-3">
-                <input type="text" id="busyDescription" placeholder="What are you busy with?" class="w-full border rounded-xl p-2">
-                <div class="flex items-center gap-2"><input type="checkbox" id="busyHard"> <label>Firm appointment (hard block)</label></div>
-                <select id="busyRecurrence" class="w-full border rounded-xl p-2">
-                    <option value="once">Once on a specific date</option>
-                    <option value="weekly">Weekly on certain days</option>
-                    <option value="daterange">Date range (e.g., vacation)</option>
-                </select>
-                <div id="busyDateSingle" class="hidden"><input type="date" id="busyDate" class="w-full border rounded-xl p-2"></div>
-                <div id="busyDateRange" class="hidden flex gap-2"><input type="date" id="busyRangeStart" placeholder="From" class="w-1/2 border rounded-xl p-2"><input type="date" id="busyRangeEnd" placeholder="To" class="w-1/2 border rounded-xl p-2"></div>
-                <div id="busyWeeklyDays" class="hidden"><div class="flex flex-wrap gap-2" id="busyDaysCheckboxes"></div></div>
+                <input type="text" id="busyDescription" placeholder="What are you busy with? (e.g. Work, Sleep, Class)" class="w-full border rounded-xl p-2 font-semibold">
+                
+                <div class="bg-gray-50 dark:bg-gray-800 p-3 rounded-lg border border-gray-200 dark:border-gray-700 space-y-3">
+                    <div class="flex items-center gap-2 mb-2">
+                        <input type="checkbox" id="busyHard" checked class="w-4 h-4 text-blue-600"> 
+                        <label class="font-medium text-sm">Hard Block <span class="font-normal text-gray-500">(Scheduler will never overlap this)</span></label>
+                    </div>
+
+                    <label class="block text-xs font-semibold text-gray-500 uppercase">When is this?</label>
+                    <div class="grid grid-cols-2 gap-2">
+                        <div>
+                            <label class="text-xs text-gray-500">Start Date</label>
+                            <input type="date" id="busyRangeStart" class="w-full border rounded-xl p-2 text-sm bg-white dark:bg-gray-900">
+                        </div>
+                        <div>
+                            <label class="text-xs text-gray-500">End Date (Optional)</label>
+                            <input type="date" id="busyRangeEnd" class="w-full border rounded-xl p-2 text-sm bg-white dark:bg-gray-900">
+                        </div>
+                    </div>
+                    
+                    <div>
+                        <label class="block text-xs font-semibold text-gray-500 uppercase mt-2 mb-1">Specific Days (Optional)</label>
+                        <div id="busyDaysCheckboxes"></div>
+                    </div>
+                </div>
                 <div class="flex gap-2">
                     <input type="time" id="busyStartTime" class="w-1/2 border rounded-xl p-2">
                     <input type="time" id="busyEndTime" class="w-1/2 border rounded-xl p-2">
@@ -424,7 +449,11 @@
             </div>
             <!-- Data panel -->
             <div id="settings-data" class="settings-panel hidden space-y-4">
-                <div class="flex flex-wrap gap-2"><button id="exportDataBtn" class="px-4 py-2 bg-gray-200 rounded-full">Export all data (JSON)</button><button id="importDataBtn" class="px-4 py-2 bg-gray-200 rounded-full">Import data</button><button id="resetAllDataBtn" class="px-4 py-2 bg-red-100 text-red-700 rounded-full">Reset all data</button></div>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <button id="exportDataBtn" class="px-4 py-3 bg-blue-50 text-blue-700 border border-blue-200 rounded-xl font-semibold flex items-center justify-center gap-2 hover:bg-blue-100 transition"><i class="fas fa-download"></i> Backup Data (JSON)</button>
+                    <button id="importDataBtn" class="px-4 py-3 bg-gray-50 text-gray-700 border border-gray-200 rounded-xl font-semibold flex items-center justify-center gap-2 hover:bg-gray-100 transition"><i class="fas fa-upload"></i> Import Backup</button>
+                    <button id="resetAllDataBtn" class="px-4 py-3 bg-red-50 text-red-700 border border-red-200 rounded-xl font-semibold flex items-center justify-center gap-2 hover:bg-red-100 transition md:col-span-2 mt-2"><i class="fas fa-exclamation-triangle"></i> DANGER: Factory Reset All Data</button>
+                </div>
                 <div class="mt-4">
                     <div class="flex justify-between items-center mb-2">
                         <label class="block font-medium">Live Data State</label>

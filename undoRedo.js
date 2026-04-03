@@ -103,12 +103,18 @@ const UndoRedo = (function() {
         }
     }
     
-    // Update undo/redo button states (if buttons exist)
+    // Update undo/redo button states (Hide if empty)
     function updateButtons() {
         const undoBtn = document.getElementById('undoBtn');
         const redoBtn = document.getElementById('redoBtn');
-        if (undoBtn) undoBtn.disabled = undoStack.length === 0;
-        if (redoBtn) redoBtn.disabled = redoStack.length === 0;
+        if (undoBtn) {
+            if (undoStack.length === 0) undoBtn.classList.add('hidden');
+            else undoBtn.classList.remove('hidden');
+        }
+        if (redoBtn) {
+            if (redoStack.length === 0) redoBtn.classList.add('hidden');
+            else redoBtn.classList.remove('hidden');
+        }
     }
     
     // ========== PUBLIC API ==========

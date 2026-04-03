@@ -382,16 +382,22 @@ function openBusyModal(busy = null, dateStr = null) {
 
     function populate(data) {
         document.getElementById('busyDescription').value = data.description || '';
-        document.getElementById('busyHard').checked = data.hard || false;
-        document.getElementById('busyRecurrence').value = data.recurrence || 'once';
-        document.getElementById('busyDate').value = data.date || dateStr || formatDate(new Date());
-        document.getElementById('busyRangeStart').value = data.startDate || '';
+        document.getElementById('busyHard').checked = data.hard !== undefined ? data.hard : true;
+        
+        // Convert old 'once' to start date
+        const defaultDate = data.startDate || data.date || dateStr || formatDate(new Date());
+        document.getElementById('busyRangeStart').value = defaultDate;
         document.getElementById('busyRangeEnd').value = data.endDate || '';
+        
         document.getElementById('busyStartTime').value = data.startTime || '09:00';
         document.getElementById('busyEndTime').value = data.endTime || '17:00';
         document.getElementById('busyAllDay').checked = data.allDay || false;
         document.getElementById('busyTag').value = data.tag || '';
-        if (data.daysOfWeek) {
+        
+        // Reset checkboxes
+        document.querySelectorAll('#busyDaysCheckboxes input').forEach(cb => cb.checked = false);
+        
+        if (data.daysOfWeek && data.daysOfWeek.length > 0) {
             document.querySelectorAll('#busyDaysCheckboxes input').forEach(cb => {
                 cb.checked = data.daysOfWeek.includes(parseInt(cb.value));
             });
@@ -403,21 +409,27 @@ function openBusyModal(busy = null, dateStr = null) {
         populate(busy);
         if (busyDraftManager) busyDraftManager.clearDraft();
         ModalManager.open('busyModal');
-        document.getElementById('busyRecurrence')?.dispatchEvent(new Event('change'));
         return;
     }
 
-    // New busy block: populate empty form
     editingBusyId = null;
-    populate({ date: dateStr || formatDate(new Date()) });
+    populate({ startDate: dateStr || formatDate(new Date()) });
+    
     if (busyDraftManager) {
-        busyDraftManager.loadDraft().then(() => {
+        busyDraftManager.loadDraft().then((draft) => {
+            if (draft && Object.keys(draft).length > 0) {
+                // Draft logic warning applies to busy modal too now
+                const banner = document.createElement('div');
+                banner.id = 'dirtyWarningBusy';
+                banner.className = 'bg-yellow-50 text-yellow-700 p-2 text-xs mb-3 rounded flex justify-between items-center';
+                banner.innerHTML = `<span>Draft restored</span> <button onclick="this.parentElement.remove(); busyDraftManager.clearDraft();" class="underline">Clear</button>`;
+                const header = document.getElementById('busyModal').querySelector('.modal-header');
+                if(!document.getElementById('dirtyWarningBusy')) header.insertAdjacentElement('afterend', banner);
+            }
             ModalManager.open('busyModal');
-            document.getElementById('busyRecurrence')?.dispatchEvent(new Event('change'));
         });
     } else {
         ModalManager.open('busyModal');
-        document.getElementById('busyRecurrence')?.dispatchEvent(new Event('change'));
     }
 }
 

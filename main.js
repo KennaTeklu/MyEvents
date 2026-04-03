@@ -787,23 +787,28 @@ window.addEventListener('DOMContentLoaded', async () => {
 
     // Save busy
       async function saveBusyBlockFromForm() {
+        const startDate = document.getElementById('busyRangeStart').value;
+        const endDate = document.getElementById('busyRangeEnd').value;
+        const daysOfWeek = Array.from(document.querySelectorAll('#busyDaysCheckboxes input:checked')).map(cb => parseInt(cb.value));
+        
+        // Determine Recurrence Type implicitly for backward compatibility with busyManager.js
+        let recurrenceType = 'once';
+        if (endDate) recurrenceType = 'daterange';
+        if (daysOfWeek.length > 0) recurrenceType = 'weekly';
+
         const busy = {
-            description: document.getElementById('busyDescription').value,
+            description: document.getElementById('busyDescription').value || 'Busy',
             hard: document.getElementById('busyHard').checked,
-            recurrence: document.getElementById('busyRecurrence').value,
-            startTime: document.getElementById('busyStartTime').value,
-            endTime: document.getElementById('busyEndTime').value,
+            recurrence: recurrenceType,
+            date: startDate, // For 'once' backwards compatibility
+            startDate: startDate,
+            endDate: endDate || startDate,
+            daysOfWeek: daysOfWeek,
+            startTime: document.getElementById('busyStartTime').value || '00:00',
+            endTime: document.getElementById('busyEndTime').value || '23:59',
             allDay: document.getElementById('busyAllDay').checked,
             tag: document.getElementById('busyTag').value
         };
-        if (busy.recurrence === 'once') busy.date = document.getElementById('busyDate').value;
-        if (busy.recurrence === 'daterange') {
-            busy.startDate = document.getElementById('busyRangeStart').value;
-            busy.endDate = document.getElementById('busyRangeEnd').value;
-        }
-        if (busy.recurrence === 'weekly') {
-            busy.daysOfWeek = Array.from(document.querySelectorAll('#busyDaysCheckboxes input:checked')).map(cb => parseInt(cb.value));
-        }
 
         // Check if we are editing an existing busy block
         if (window.editingBusyId && window.editingBusyId !== null) {
