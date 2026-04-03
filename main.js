@@ -74,9 +74,27 @@ async function loadData() {
             const id = await addRecord(STORES.PLACES, defaultPlace);
             places.push({ ...defaultPlace, id });
         }
-        currentPlaceId = places[0]?.id || 1;
+        
+        // ONLY default to the first place if currentPlaceId is completely undefined
+        if (!currentPlaceId) {
+            currentPlaceId = places[0]?.id || 1;
+        }
+
+        // Verify currentPlaceId actually exists in the loaded places array
+        const validPlace = places.find(p => p.id === currentPlaceId);
+        if (!validPlace) {
+            currentPlaceId = places[0]?.id || 1;
+        }
+
         const placeDisplay = document.getElementById('currentPlaceDisplay');
-        if (placeDisplay) placeDisplay.innerText = `📍 ${places.find(p => p.id === currentPlaceId)?.name || 'Home'}`;
+        if (placeDisplay) {
+            const displayPlace = places.find(p => p.id === currentPlaceId);
+            let name = displayPlace ? displayPlace.name : 'Home';
+            if (currentLocation && currentLocation.sublocationName) {
+                name += ` (${currentLocation.sublocationName})`;
+            }
+            placeDisplay.innerText = `📍 ${name}`;
+        }
 
         syncSettingsToUI();
         console.log('loadData completed successfully. Events:', events.length, 'BusyBlocks:', busyBlocks.length, 'Places:', places.length);
@@ -1062,8 +1080,13 @@ function showGPSModal(place, distance, lat, lon, isExactMatch = false) {
         
         confirmBtn.onclick = () => {
             currentPlaceId = place.id;
+            currentLocation.sublocationId = null;
+            currentLocation.sublocationName = null;
+            
             const placeDisplay = document.getElementById('currentPlaceDisplay');
             if (placeDisplay) placeDisplay.innerText = `📍 ${place.name}`;
+            
+            showToast(`Location confirmed: ${place.name}`, 'success');
             ModalManager.close('gpsDisambigModal');
         };
 
@@ -1110,13 +1133,22 @@ function showGPSModal(place, distance, lat, lon, isExactMatch = false) {
         if (newName && newName.trim()) {
             const newPlace = { name: newName.trim(), lat, lon, radius: 40, travelToEvent: {} };
             const id = await addRecord('places', newPlace);
-            places.push({ ...newPlace, id });
             
+            // Set the active location variables
             currentPlaceId = id;
-            const placeDisplay = document.getElementById('currentPlaceDisplay');
-            if (placeDisplay) placeDisplay.innerText = `📍 ${newPlace.name}`;
-            
+            currentLocation.sublocationId = null;
+            currentLocation.sublocationName = null;
+
+            // Load data completely to ensure 'places' array is perfectly in sync with the DB
             await loadData();
+            
+            // After data is loaded, forcibly update the UI
+            const placeDisplay = document.getElementById('currentPlaceDisplay');
+            const confirmedPlace = places.find(p => p.id === currentPlaceId);
+            if (placeDisplay && confirmedPlace) {
+                placeDisplay.innerText = `📍 ${confirmedPlace.name}`;
+            }
+            
             showToast(`Location saved as: ${newName}`, 'success');
         }
         ModalManager.close('gpsDisambigModal');
