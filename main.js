@@ -470,7 +470,7 @@ window.addEventListener('DOMContentLoaded', async () => {
             return;
         }
         
-        showToast('Detecting location...', 'info');
+        showToast('Detecting exact coordinates...', 'info');
         
         navigator.geolocation.getCurrentPosition(async (position) => {
             const lat = position.coords.latitude;
@@ -488,7 +488,7 @@ window.addEventListener('DOMContentLoaded', async () => {
                     const d = getDistance(lat, lon, p.lat, p.lon);
                     if (d <= p.radius) {
                         matched = p;
-                        break;
+                        // Don't break, find the ABSOLUTE closest if multiple overlap
                     }
                     if (d < closestDist) {
                         closestDist = d;
@@ -497,21 +497,13 @@ window.addEventListener('DOMContentLoaded', async () => {
                 }
             }
 
+            // ALWAYS open the GPS modal to give the user the final choice
             if (matched) {
-                // We are inside an existing place!
-                currentPlaceId = matched.id;
-                const placeDisplay = document.getElementById('currentPlaceDisplay');
-                if (placeDisplay) placeDisplay.innerText = `📍 ${matched.name}`;
-                showToast(`📍 Updated: You are at ${matched.name}`, 'success');
+                showGPSModal(matched, closestDist, lat, lon, true);
+            } else if (closest && closestDist < 300) { 
+                showGPSModal(closest, closestDist, lat, lon, false);
             } else {
-                // We are outside all known radii. Show disambiguation modal.
-                if (closest && closestDist < 300) { 
-                    // Close enough to guess a place (under 300m)
-                    showGPSModal(closest, closestDist, lat, lon);
-                } else {
-                    // Completely new location
-                    showGPSModal(null, null, lat, lon); 
-                }
+                showGPSModal(null, null, lat, lon, false); 
             }
         }, (err) => {
             showToast(`Location error: ${err.message}`, 'error');
@@ -1045,52 +1037,76 @@ window.addEventListener('DOMContentLoaded', async () => {
 });
 
 // ========== GPS DISAMBIGUATION MODAL ==========
-function showGPSModal(place, distance, lat, lon) {
+function showGPSModal(place, distance, lat, lon, isExactMatch = false) {
     const modal = document.getElementById('gpsDisambigModal');
     if (!modal) return;
 
-    const placeInfo = modal.querySelector('.gps-place-info');
+    const infoText = modal.querySelector('#gpsModalText');
+    const confirmBtn = modal.querySelector('#gpsConfirmMatch');
+    const updateCoordsBtn = modal.querySelector('#gpsUpdateCoords');
     const widenBtn = modal.querySelector('#gpsWidenRadius');
-    const createBtn = modal.querySelector('#gpsCreatePlace');
     const sublocationBtn = modal.querySelector('#gpsCreateSublocation');
+    const createBtn = modal.querySelector('#gpsCreatePlace');
 
-    // If near a known place (distance < 300m)
-    if (place) {
-        placeInfo.style.display = 'flex';
-        modal.querySelector('.place-name').textContent = place.name;
-        modal.querySelector('.distance').textContent = Math.round(distance);
-        widenBtn.style.display = 'flex';
-        if (sublocationBtn) sublocationBtn.style.display = 'flex';
+    // Reset visibility
+    confirmBtn.classList.add('hidden');
+    updateCoordsBtn.classList.add('hidden');
+    widenBtn.classList.add('hidden');
+    sublocationBtn.classList.add('hidden');
+
+    if (isExactMatch && place) {
+        infoText.innerHTML = `You are currently inside <strong>${place.name}</strong>.`;
+        confirmBtn.classList.remove('hidden');
+        updateCoordsBtn.classList.remove('hidden');
+        sublocationBtn.classList.remove('hidden');
+        
+        confirmBtn.onclick = () => {
+            currentPlaceId = place.id;
+            const placeDisplay = document.getElementById('currentPlaceDisplay');
+            if (placeDisplay) placeDisplay.innerText = `📍 ${place.name}`;
+            ModalManager.close('gpsDisambigModal');
+        };
+
+        updateCoordsBtn.onclick = async () => {
+            place.lat = lat;
+            place.lon = lon;
+            await putRecord('places', place);
+            await loadData();
+            showToast(`Coordinates updated for ${place.name}`, 'success');
+            ModalManager.close('gpsDisambigModal');
+        };
+
+    } else if (place) {
+        infoText.innerHTML = `You are <strong>${Math.round(distance)}m</strong> away from <strong>${place.name}</strong>.`;
+        widenBtn.classList.remove('hidden');
+        sublocationBtn.classList.remove('hidden');
         
         widenBtn.onclick = async () => {
-            place.radius = Math.max(place.radius, distance + 10);
+            place.radius = Math.max(place.radius, distance + 15);
             await putRecord('places', place);
             await loadData();
             showToast(`Radius of ${place.name} expanded to ${Math.round(place.radius)}m`, 'success');
             ModalManager.close('gpsDisambigModal');
         };
-
-        if (sublocationBtn) {
-            sublocationBtn.onclick = () => {
-                ModalManager.close('gpsDisambigModal');
-                showSublocationModal(place, lat, lon, async (updatedPlace, subName) => {
-                    if (updatedPlace && subName) {
-                        await loadData();
-                        showToast(`Added sublocation: ${subName}`, 'success');
-                    }
-                });
-            };
-        }
     } else {
-        // Completely new area
-        placeInfo.style.display = 'none';
-        widenBtn.style.display = 'none';
-        if (sublocationBtn) sublocationBtn.style.display = 'none';
+        infoText.innerHTML = `You are in a new, unrecognized area.`;
+    }
+
+    if (sublocationBtn) {
+        sublocationBtn.onclick = () => {
+            ModalManager.close('gpsDisambigModal');
+            showSublocationModal(place, lat, lon, async (updatedPlace, subName) => {
+                if (updatedPlace && subName) {
+                    await loadData();
+                    showToast(`Added sublocation: ${subName}`, 'success');
+                }
+            });
+        };
     }
 
     // Always allow creating a brand new independent place
     createBtn.onclick = async () => {
-        const newName = prompt('You are in a new area. What is this place called? (e.g., Work, Gym, Library)', 'New Place');
+        const newName = prompt('What is this place called? (e.g., Work, Gym, Library)', '');
         if (newName && newName.trim()) {
             const newPlace = { name: newName.trim(), lat, lon, radius: 40, travelToEvent: {} };
             const id = await addRecord('places', newPlace);
