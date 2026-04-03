@@ -367,30 +367,38 @@ async function importNotificationLog(log) {
 document.addEventListener('DOMContentLoaded', () => {
     const notifBell = document.getElementById('notifBell');
     const notifPanel = document.getElementById('notifPanel');
+    
     if (notifBell && notifPanel) {
-        notifBell.addEventListener('click', (e) => {
+        notifBell.onclick = (e) => {
             e.stopPropagation();
-            notifPanel.classList.toggle('hidden');
-            // Mark all as read when opened
-            notificationLog.forEach(n => n.read = true);
-            updateNotifBadge();
-            renderNotifPanel();
-        });
-        document.addEventListener('click', (e) => {
-            if (!notifPanel.contains(e.target) && e.target !== notifBell) {
-                notifPanel.classList.add('hidden');
-            }
-        });
-        const clearAllBtn = document.getElementById('clearAllNotifs');
-        if (clearAllBtn) {
-            clearAllBtn.addEventListener('click', () => {
-                notificationLog.length = 0;
+            const isActive = notifPanel.classList.contains('active');
+            if (isActive) {
+                notifPanel.classList.remove('active');
+            } else {
+                notifPanel.classList.add('active');
+                notificationLog.forEach(n => n.read = true);
                 updateNotifBadge();
                 renderNotifPanel();
-                notifPanel.classList.add('hidden');
-                showToast('All notifications cleared');
-            });
-        }
+            }
+        };
+
+        // Close when clicking anywhere else
+        document.addEventListener('click', (e) => {
+            if (!notifPanel.contains(e.target) && !notifBell.contains(e.target)) {
+                notifPanel.classList.remove('active');
+            }
+        });
+    }
+
+    const clearAllBtn = document.getElementById('clearAllNotifs');
+    if (clearAllBtn) {
+        clearAllBtn.onclick = () => {
+            notificationLog.length = 0;
+            updateNotifBadge();
+            renderNotifPanel();
+            notifPanel.classList.remove('active');
+            showToast('All notifications cleared');
+        };
     }
 });
 

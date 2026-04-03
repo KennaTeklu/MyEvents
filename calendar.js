@@ -48,52 +48,65 @@ function getDisplayBusyForDate(dateStr) {
 // ========== WEEK VIEW (desktop) ==========
 async function renderWeekView(container) {
     const startOfWeek = new Date(currentDate);
+    // Adjust start of week based on user setting (0 = Sun, 1 = Mon)
     startOfWeek.setDate(currentDate.getDate() - ((currentDate.getDay() - firstDayOfWeek + 7) % 7));
     const days = Array.from({ length: 7 }, (_, i) => addDays(startOfWeek, i));
 
+    // 1. Calculate dynamic hour range to minimize vertical scrolling
     let earliestHour = 24, latestHour = 0;
     for (const day of days) {
         const dateStr = formatDate(day);
         const dayEvents = getDisplayEventsForDate(dateStr);
-        for (const ev of dayEvents) {
+        dayEvents.forEach(ev => {
             const startMin = toMinutes(ev.startTime);
             const endMin = toMinutes(ev.endTime);
             earliestHour = Math.min(earliestHour, Math.floor(startMin / 60));
             latestHour = Math.max(latestHour, Math.ceil(endMin / 60));
-        }
+        });
         const dayBusy = getDisplayBusyForDate(dateStr);
-        for (const busy of dayBusy) {
+        dayBusy.forEach(busy => {
             const startMin = toMinutes(busy.startTime);
             const endMin = toMinutes(busy.endTime);
             earliestHour = Math.min(earliestHour, Math.floor(startMin / 60));
             latestHour = Math.max(latestHour, Math.ceil(endMin / 60));
-        }
+        });
     }
-    earliestHour = Math.max(6, earliestHour - 1);
-    latestHour = Math.min(22, latestHour + 1);
-    if (earliestHour >= latestHour) { earliestHour = 6; latestHour = 22; }
-
+    // Buffer the range or use defaults if day is empty
+    earliestHour = Math.max(0, Math.min(earliestHour - 1, 8)); // Usually start at 8 AM
+    latestHour = Math.min(24, Math.max(latestHour + 1, 20));   // Usually end at 8 PM
+    
     const totalMinutes = (latestHour - earliestHour) * 60;
     const dayHeight = totalMinutes * PIXELS_PER_MIN;
 
-    let html = `<div class="weekdays flex">`;
+    // 2. Build the 2D Sticky Scroll Container
+    let html = `<div class="timeline-container" style="display: flex; flex-direction: column; flex: 1; overflow: auto; position: relative; height: 100%; background: var(--color-bg);">`;
+    
+    // Header Row (Sticky to top)
+    html += `<div class="weekdays flex" style="position: sticky; top: 0; z-index: 30; background: var(--color-bg); border-bottom: 1px solid var(--color-border); width: 100%; min-width: max-content;">`;
+    // Top-left corner spacer (Sticky to left AND top)
+    html += `<div style="width: 70px; flex-shrink: 0; position: sticky; left: 0; z-index: 40; background: var(--color-surface); border-right: 1px solid var(--color-border);"></div>`;
+    
     days.forEach(d => {
         const isToday = formatDate(d) === formatDate(new Date());
-        html += `<div class="day-header flex-1 text-center font-semibold py-2 ${isToday ? 'today-header' : ''}">
-                    ${d.toLocaleDateString(undefined, { weekday: 'short' })}<br>${d.getDate()}
+        html += `<div class="day-header flex-1 text-center font-semibold py-2 ${isToday ? 'today-header' : ''}" style="min-width: 120px;">
+                    <span class="day-name" style="font-size: 0.7rem; color: var(--color-text-secondary); text-transform: uppercase;">${d.toLocaleDateString(undefined, { weekday: 'short' })}</span><br>
+                    <span class="day-number" style="font-size: 1.1rem;">${d.getDate()}</span>
                  </div>`;
     });
     html += `</div>`;
-    html += `<div class="timeline-container" style="display: flex;">`;
 
-    // Time labels column
-    html += `<div class="time-col" style="width: 70px; flex-shrink: 0;">`;
+    // 3. Main Grid Body
+    html += `<div style="display: flex; flex: 1; width: 100%; min-width: max-content;">`;
+    
+    // Time Column (Sticky to left)
+    html += `<div class="time-col" style="width: 70px; flex-shrink: 0; background: var(--color-surface); position: sticky; left: 0; z-index: 20; border-right: 1px solid var(--color-border);">`;
     for (let minute = earliestHour * 60; minute <= latestHour * 60; minute += 30) {
-        html += `<div style="height: ${30 * PIXELS_PER_MIN}px; display: flex; align-items: center; justify-content: flex-end; padding-right: 8px; font-size: 0.7rem;">${formatTime(minute)}</div>`;
+        html += `<div style="height: ${30 * PIXELS_PER_MIN}px; display: flex; align-items: flex-start; justify-content: flex-end; padding-right: 8px; padding-top: 4px; font-size: 0.7rem; color: var(--color-text-muted); box-sizing: border-box;">${formatTime(minute)}</div>`;
     }
     html += `</div>`;
 
-    html += `<div class="days-row" style="display: flex; flex: 1; overflow-x: auto;">`;
+    // Day Columns
+    html += `<div class="days-row" style="display: flex; flex: 1;">`;
 
     for (const day of days) {
         const dayStr = formatDate(day);
@@ -104,9 +117,9 @@ async function renderWeekView(container) {
         html += `<div class="day-cell relative" data-date="${dayStr}" 
             ondragover="dragover_handler(event)"
             ondrop="drop_handler(event)"
-            style="flex: 1; min-width: 100px; height: ${dayHeight}px; position: relative; background: ${isToday ? '#eff6ff' : 'white'}; border-right: 1px solid #e5e7eb;">`;
+            style="flex: 1; min-width: 120px; height: ${dayHeight}px; position: relative; background: ${isToday ? 'var(--color-today-bg)' : 'transparent'}; border-right: 1px solid var(--color-border);">`;
 
-        // Busy overlays (with data-busy-id for editing)
+        // 4. Busy overlays (Visual constraints)
         for (const busy of dayBusy) {
             const startMin = toMinutes(busy.startTime);
             const endMin = toMinutes(busy.endTime);
@@ -115,23 +128,23 @@ async function renderWeekView(container) {
                 const endOffset = Math.min(endMin, latestHour * 60);
                 const top = (startOffset - earliestHour * 60) * PIXELS_PER_MIN;
                 const height = (endOffset - startOffset) * PIXELS_PER_MIN;
-                html += `<div class="busy-overlay ${busy.hard ? 'hard' : ''}" data-busy-id="${busy.id}" style="position: absolute; top: ${top}px; height: ${height}px; left: 0; right: 0; pointer-events: auto; cursor: pointer;"></div>`;
+                html += `<div class="busy-overlay ${busy.hard ? 'hard' : ''}" data-busy-id="${busy.id}" style="position: absolute; top: ${top}px; height: ${height}px; left: 0; right: 0;"></div>`;
             }
         }
 
-        // Events
-        const eventsToRender = dayEvents;
-        // Also show todos if setting enabled (as small icons)
+        // 5. Todo badge
         if (userSettings.showTodosInCalendar) {
             const todosDue = todos.filter(t => !t.completed && t.dueDate === dayStr);
             if (todosDue.length > 0) {
-                html += `<div class="todo-badge" style="position: absolute; top: 2px; right: 2px; background: #f59e0b; color: white; border-radius: 12px; padding: 0px 6px; font-size: 10px; font-weight: bold;">📝${todosDue.length}</div>`;
+                html += `<div class="todo-badge" style="position: absolute; top: 4px; right: 4px; background: var(--color-warning); color: white; border-radius: 12px; padding: 1px 7px; font-size: 10px; font-weight: bold; z-index: 15; box-shadow: var(--shadow-sm);">📝 ${todosDue.length}</div>`;
             }
         }
 
-        for (const ev of eventsToRender) {
+        // 6. Events (Render with travel blocks and conflicts)
+        for (const ev of dayEvents) {
             const startMin = toMinutes(ev.startTime);
             const endMin = toMinutes(ev.endTime);
+            
             if (endMin > earliestHour * 60 && startMin < latestHour * 60) {
                 const startOffset = Math.max(startMin, earliestHour * 60);
                 const endOffset = Math.min(endMin, latestHour * 60);
@@ -140,8 +153,11 @@ async function renderWeekView(container) {
 
                 const isNogo = overrides.has(`${ev.id}_${dayStr}`) && overrides.get(`${ev.id}_${dayStr}`).type === 'nogo';
                 const isLocked = overrides.has(`${ev.id}_${dayStr}`) && overrides.get(`${ev.id}_${dayStr}`).type === 'locked';
+                
+                // Detailed Conflict Detection
                 const hasConflict = dayBusy.some(b => endMin > toMinutes(b.startTime) && startMin < toMinutes(b.endTime)) ||
-                                   eventsToRender.some(other => other.id !== ev.id && endMin > toMinutes(other.startTime) && startMin < toMinutes(other.endTime));
+                                   dayEvents.some(other => other.id !== ev.id && endMin > toMinutes(other.startTime) && startMin < toMinutes(other.endTime));
+                
                 const isScheduled = ev.isScheduled || false;
                 const duration = endMin - startMin;
                 const isShort = duration < 30;
@@ -156,31 +172,32 @@ async function renderWeekView(container) {
                             data-id="${ev.id}" data-date="${dayStr}"
                             draggable="true"
                             ondragstart="dragstart_handler(event)"
-                            style="position: absolute; top: ${top}px; height: ${height}px; left: 2px; right: 2px; background-color: ${ev.color || '#3b82f6'}; border-radius: 6px; padding: 2px 4px; font-size: 0.7rem; font-weight: 600; color: white; cursor: pointer; overflow: hidden; white-space: normal; z-index: 10;"
+                            style="position: absolute; top: ${top}px; height: ${height}px; background-color: ${ev.color || 'var(--color-primary)'};"
                             role="button" tabindex="0"
                             aria-label="${escapeHtml(ev.name)}, ${formatTime(startMin)} to ${formatTime(endMin)}">
-                            ${escapeHtml(ev.name)}
-                            <span class="event-time" style="font-size: 0.6rem; font-weight: normal; display: block;">${formatTime(startMin)}–${formatTime(endMin)}</span>
-                            ${hasConflict ? '<span class="conflict-label" style="position: absolute; top: 2px; right: 2px; background: red; color: white; border-radius: 50%; width: 16px; height: 16px; font-size: 10px; text-align: center;">⚠️</span>' : ''}
-                            ${isScheduled ? '<span class="scheduled-label" style="position: absolute; bottom: 2px; right: 2px; font-size: 8px; background: rgba(0,0,0,0.4); padding: 0px 2px; border-radius: 3px;">⚙️</span>' : ''}
+                            <span class="event-name">${escapeHtml(ev.name)}</span>
+                            <span class="event-time">${formatTime(startMin)}–${formatTime(endMin)}</span>
+                            ${hasConflict ? '<span class="conflict-label" style="position: absolute; top: 2px; right: 2px; background: var(--color-danger); color: white; border-radius: 50%; width: 18px; height: 18px; font-size: 11px; display: flex; align-items: center; justify-content: center;">⚠️</span>' : ''}
+                            ${isScheduled ? '<span class="scheduled-label" style="position: absolute; bottom: 2px; right: 2px; font-size: 9px; background: rgba(0,0,0,0.4); padding: 0px 4px; border-radius: 3px;">⚙️</span>' : ''}
                         </div>`;
-                // Travel block
+
+                // Travel block (Visual indicator for transit)
                 const travelMins = ev.travelMins || (ev.travelTimeFromPrev || 0);
                 if (travelMins > 0 && startOffset > earliestHour * 60) {
                     const travelTop = top - (travelMins * PIXELS_PER_MIN);
                     if (travelTop >= 0) {
-                        html += `<div class="travel-block" style="position: absolute; top: ${travelTop}px; height: ${travelMins * PIXELS_PER_MIN}px; left: 2px; right: 2px; background: #9ca3af; border-radius: 4px; font-size: 0.6rem; text-align: center; color: white; line-height: 1.2; z-index: 9;">🚗 ${travelMins} min</div>`;
+                        html += `<div class="travel-block" style="position: absolute; top: ${travelTop}px; height: ${travelMins * PIXELS_PER_MIN}px; left: 4px; right: 4px; background: #9ca3af; border-radius: 4px; font-size: 0.65rem; text-align: center; color: white; line-height: 1.2; z-index: 9;">🚗 ${travelMins} min travel</div>`;
                     }
                 }
             }
         }
-
         html += `</div>`;
     }
 
-    html += `</div></div>`;
+    html += `</div></div></div>`; // Close days-row, body-row, and timeline-container
     container.innerHTML = html;
 
+    // Show empty state if nothing is planned
     const totalEventsThisWeek = days.reduce((acc, day) => acc + getDisplayEventsForDate(formatDate(day)).length, 0);
     if (totalEventsThisWeek === 0 && (!userSettings.showTodosInCalendar || todos.filter(t => !t.completed).length === 0)) {
         renderEmptyState(container);

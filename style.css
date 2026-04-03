@@ -1913,3 +1913,11 @@ button:focus-visible {
     max-width: 100%;
   }
 }
+/* Ensure Notification Panel is always on top and visible */
+#notifPanel {
+    z-index: 9999 !important;
+    display: none; /* Change from .hidden class logic to explicit display */
+}
+#notifPanel.active {
+    display: block;
+}

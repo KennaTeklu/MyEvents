@@ -28,6 +28,22 @@ document.addEventListener('click', (e) => {
     }
 });
 
+// ========== UNIVERSAL CANCEL BUTTON HANDLER ==========
+document.addEventListener('click', (e) => {
+    // Select any button that contains "Cancel" text or has a cancel-themed ID
+    if (e.target.id?.toLowerCase().includes('cancel') || e.target.innerText?.trim() === 'Cancel') {
+        const modal = e.target.closest('.modal-backdrop');
+        if (modal) {
+            e.preventDefault();
+            if (modal.id === 'eventModal') {
+                closeEventModalWithCheck();
+            } else {
+                ModalManager.close(modal.id);
+            }
+        }
+    }
+});
+
 // ========== MODAL MANAGER (Global Focus Trap) ==========
 if (typeof ModalManager === 'undefined') {
     window.ModalManager = {
