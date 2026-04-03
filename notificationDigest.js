@@ -80,44 +80,53 @@ Have a productive day!
     }
 
     async function sendEmailDigest(toEmail, digest) {
-        // Use configured email method (Cloudflare Worker URL or AWS SES)
         const emailSettings = await getSetting('emailSettings');
         if (!emailSettings || !emailSettings.enabled) return false;
-        if (emailSettings.method === 'cloudflare' && emailSettings.workerUrl) {
-            try {
-                const response = await fetch(emailSettings.workerUrl, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        to: toEmail,
-                        subject: digest.subject,
-                        body: digest.body
-                    })
-                });
-                return response.ok;
-            } catch (err) {
-                console.error('Cloudflare email failed:', err);
-                return false;
-            }
-        } else if (emailSettings.method === 'ses' && emailSettings.apiEndpoint) {
-            // AWS SES via shared worker – similar implementation
-            try {
-                const response = await fetch(emailSettings.apiEndpoint, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        to: toEmail,
-                        subject: digest.subject,
-                        body: digest.body
-                    })
-                });
-                return response.ok;
-            } catch (err) {
-                console.error('AWS SES email failed:', err);
-                return false;
-            }
+        
+        const endpoint = emailSettings.method === 'cloudflare' ? emailSettings.workerUrl : emailSettings.apiEndpoint;
+        
+        if (!endpoint) {
+            console.warn('Email enabled but no endpoint URL provided.');
+            return false;
         }
-        return false;
+
+        try {
+            // Adding a timeout using AbortController to prevent hanging
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+
+            const response = await fetch(endpoint, {
+                method: 'POST',
+                headers: { 
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${emailSettings.apiKey || ''}` // Support optional API key auth
+                },
+                body: JSON.stringify({
+                    to: toEmail,
+                    subject: digest.subject,
+                    html: digest.body.replace(/\n/g, '<br>'), // Send HTML version for better formatting
+                    text: digest.body
+                }),
+                signal: controller.signal
+            });
+            
+            clearTimeout(timeoutId);
+
+            if (!response.ok) {
+                const errorText = await response.text();
+                console.error(`Email API returned ${response.status}:`, errorText);
+                return false;
+            }
+            
+            return true;
+        } catch (err) {
+            if (err.name === 'AbortError') {
+                console.error('Email API request timed out.');
+            } else {
+                console.error('Email API request failed:', err);
+            }
+            return false;
+        }
     }
 
     async function sendPushDigest(digest) {

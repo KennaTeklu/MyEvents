@@ -27,27 +27,33 @@ const EventList = (function() {
         const modalHtml = `
             <div id="eventListModal" class="modal-backdrop hidden" data-closeable="true">
                 <div class="modal-card" style="max-width: 600px;">
-                    <div class="modal-header">
-                        <h3 class="modal-title">📋 All Events</h3>
-                        <button class="modal-close" id="closeEventListModal">&times;</button>
+                    <div class="modal-header border-b border-gray-100 dark:border-gray-700 pb-3">
+                        <h3 class="modal-title text-xl font-bold flex items-center gap-2"><i class="fas fa-list text-blue-600"></i> All Events</h3>
+                        <button class="modal-close w-8 h-8 rounded-full bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 flex items-center justify-center transition">&times;</button>
                     </div>
-                    <div class="space-y-3">
-                        <div class="flex gap-2">
-                            <input type="text" id="eventListSearch" placeholder="Search events..." class="form-input flex-1">
-                            <select id="eventListFilter" class="form-select w-40">
+                    <div class="space-y-4 mt-2">
+                        <div class="flex flex-col sm:flex-row gap-3">
+                            <div class="relative flex-1">
+                                <i class="fas fa-search absolute left-3 top-3 text-gray-400"></i>
+                                <input type="text" id="eventListSearch" placeholder="Search events..." class="form-input w-full pl-9 bg-gray-50 dark:bg-gray-900 border-gray-200">
+                            </div>
+                            <select id="eventListFilter" class="form-select w-full sm:w-48 bg-gray-50 dark:bg-gray-900 border-gray-200">
                                 <option value="all">All events</option>
-                                <option value="recurring">Recurring</option>
-                                <option value="once">Once</option>
+                                <option value="recurring">Recurring only</option>
+                                <option value="once">One-time only</option>
                                 <option value="attended">Attended</option>
                                 <option value="upcoming">Upcoming</option>
                                 <option value="past">Past</option>
                             </select>
                         </div>
-                        <div id="eventListItems" class="max-h-96 overflow-y-auto border border-gray-200 dark:border-gray-700 rounded-lg">
-                            <div class="text-center text-gray-400 text-sm py-6">Loading events...</div>
+                        <div id="eventListItems" class="max-h-[60vh] overflow-y-auto border border-gray-200 dark:border-gray-700 rounded-xl bg-white dark:bg-gray-800 shadow-inner">
+                            <div class="text-center text-gray-400 text-sm py-10 flex flex-col items-center gap-2">
+                                <i class="fas fa-spinner fa-spin text-2xl text-blue-500"></i>
+                                Loading events...
+                            </div>
                         </div>
-                        <div class="text-xs text-gray-500 text-center mt-2">
-                            Click on an event to edit, or use the "Mark attended" button.
+                        <div class="text-xs text-gray-500 text-center mt-2 bg-blue-50 dark:bg-gray-800 p-2 rounded-lg border border-blue-100 dark:border-gray-700">
+                            <i class="fas fa-info-circle text-blue-500"></i> Click on an event to edit, or use the "Mark attended" button.
                         </div>
                     </div>
                 </div>

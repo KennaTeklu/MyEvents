@@ -83,8 +83,28 @@
 /* ========== LAYOUT & APP SHELL ========== */
 html, body {
   height: 100%;
+  width: 100%;
   overflow: hidden;
   overscroll-behavior: none;
+  /* Prevent pull-to-refresh on mobile */
+  touch-action: none; 
+}
+
+/* Ensure child elements can still scroll vertically */
+.overflow-y-auto, .overflow-auto {
+  touch-action: pan-y;
+}
+.overflow-x-auto {
+  touch-action: pan-x;
+}
+
+/* Hide scrollbar for topbar buttons */
+.no-scrollbar::-webkit-scrollbar {
+    display: none;
+}
+.no-scrollbar {
+    -ms-overflow-style: none;  /* IE and Edge */
+    scrollbar-width: none;  /* Firefox */
 }
 
 #mainApp {
