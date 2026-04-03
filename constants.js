@@ -97,7 +97,13 @@ const STORES = {
     SCHEDULED_EVENTS: 'scheduledEvents',
     LEARNING_DATA: 'learningData',
     LOCATION_HISTORY: 'locationHistory',
-    USER_FEEDBACK: 'userFeedback'
+    USER_FEEDBACK: 'userFeedback',
+    CONVERSATION_LOG: 'conversationLog',
+    DECISION_LOG: 'decisionLog',
+    USER_QUOTES: 'userQuotes',
+    TEMPLATES_CACHE: 'templatesCache',
+    GOALS: 'goals',
+    PLUGINS: 'plugins'
 };
 
 // ========== USER SETTINGS DEFAULTS ==========

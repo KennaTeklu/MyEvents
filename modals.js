@@ -297,8 +297,6 @@ function showFieldError(inputEl, message) {
 }
 
 // ========== BUSY MODAL ==========
-let editingBusyId = null; // FIX: declare variable for editing busy blocks
-
 function openBusyModal(busy = null, dateStr = null) {
     const modal = document.getElementById('busyModal');
     if (!modal) return;
@@ -505,7 +503,7 @@ function showFeedbackModal(event, dateStr) {
 }
 
 // ========== CONFLICT RESOLUTION MODAL ==========
-function showConflictModal(conflictInfo) {function showConflictModal(conflictInfo) {
+function showConflictModal(conflictInfo) {
     const modal = document.getElementById('conflictModal');
     if (!modal) return;
 
@@ -778,5 +776,4 @@ function showUndoToast(action, data) {
         showToast('Undone', 'success');
     };
     setTimeout(() => toast.remove(), 5000);
-}
 }

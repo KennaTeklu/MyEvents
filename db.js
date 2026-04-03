@@ -19,7 +19,7 @@ let snapshotInProgress = false;
 let eventListeners = new Map(); // for The Instant Responder
 
 const DB_NAME = 'SmartScheduler';
-const DB_VERSION = 11;       // increased for new stores & WAL
+const DB_VERSION = 12;       // increased for new stores & WAL
 const WAL_MAX_SIZE = 100;    // number of entries before forcing a snapshot
 const SNAPSHOT_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
 
@@ -103,6 +103,12 @@ async function initDB() {
             if (!db.objectStoreNames.contains('templatesCache')) {
                 db.createObjectStore('templatesCache', { keyPath: 'templateId' });
             }
+            if (!db.objectStoreNames.contains('goals')) {
+                db.createObjectStore('goals', { keyPath: 'id', autoIncrement: true });
+            }
+            if (!db.objectStoreNames.contains('plugins')) {
+                db.createObjectStore('plugins', { keyPath: 'id' });
+            }
             // WAL store (for recovery)
             if (!db.objectStoreNames.contains('wal')) {
                 db.createObjectStore('wal', { keyPath: 'sequence', autoIncrement: true });
@@ -146,7 +152,8 @@ async function createSnapshot() {
         const stores = [
             'events', 'busyBlocks', 'places', 'overrides', 'settings', 'attendanceLog',
             'drafts', 'todos', 'scheduledEvents', 'learningData', 'locationHistory',
-            'userFeedback', 'conversationLog', 'decisionLog', 'userQuotes', 'templatesCache'
+            'userFeedback', 'conversationLog', 'decisionLog', 'userQuotes', 'templatesCache',
+            'goals', 'plugins'
         ];
         const snapshotData = {};
         for (const storeName of stores) {
@@ -370,7 +377,8 @@ async function clearAllStores() {
     const stores = [
         'events', 'busyBlocks', 'places', 'overrides', 'settings', 'attendanceLog',
         'drafts', 'todos', 'scheduledEvents', 'learningData', 'locationHistory',
-        'userFeedback', 'conversationLog', 'decisionLog', 'userQuotes', 'templatesCache', 'wal', 'snapshots'
+        'userFeedback', 'conversationLog', 'decisionLog', 'userQuotes', 'templatesCache', 
+        'goals', 'plugins', 'wal', 'snapshots'
     ];
     for (const storeName of stores) {
         try {
