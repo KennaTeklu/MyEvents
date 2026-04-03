@@ -569,11 +569,23 @@ document.addEventListener('DOMContentLoaded', () => {
     // New settings listeners
     const horizonSelect = document.getElementById('planningHorizonWeeks');
     if (horizonSelect) horizonSelect.addEventListener('change', async (e) => {
-        planningHorizonWeeks = parseInt(e.target.value);
+        planningHorizonWeeks = parseInt(e.target.value) || 4;
         await setSetting('planningHorizonWeeks', planningHorizonWeeks);
         userSettings.planningHorizonWeeks = planningHorizonWeeks;
         await setSetting('userSettings', userSettings);
         if (typeof runOptimizer === 'function') runOptimizer();
+    });
+
+    const quietStart = document.getElementById('quietHoursStart');
+    if (quietStart) quietStart.addEventListener('change', async (e) => {
+        userSettings.quietHoursStart = parseInt(e.target.value) || 22;
+        await setSetting('userSettings', userSettings);
+    });
+
+    const quietEnd = document.getElementById('quietHoursEnd');
+    if (quietEnd) quietEnd.addEventListener('change', async (e) => {
+        userSettings.quietHoursEnd = parseInt(e.target.value) || 7;
+        await setSetting('userSettings', userSettings);
     });
     const travelSpeedSelect = document.getElementById('travelSpeed');
     if (travelSpeedSelect) travelSpeedSelect.addEventListener('change', async (e) => {
@@ -585,16 +597,6 @@ document.addEventListener('DOMContentLoaded', () => {
         userSettings.notificationSound = e.target.value;
         await setSetting('userSettings', userSettings);
         if (typeof updateNotifications === 'function') updateNotifications();
-    });
-    const quietStart = document.getElementById('quietHoursStart');
-    if (quietStart) quietStart.addEventListener('change', async (e) => {
-        userSettings.quietHoursStart = parseInt(e.target.value);
-        await setSetting('userSettings', userSettings);
-    });
-    const quietEnd = document.getElementById('quietHoursEnd');
-    if (quietEnd) quietEnd.addEventListener('change', async (e) => {
-        userSettings.quietHoursEnd = parseInt(e.target.value);
-        await setSetting('userSettings', userSettings);
     });
     const showTodosCheck = document.getElementById('showTodosInCalendar');
     if (showTodosCheck) showTodosCheck.addEventListener('change', async (e) => {

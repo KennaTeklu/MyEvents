@@ -13,6 +13,8 @@
 const LocationManager = (function() {
     // ========== PRIVATE VARIABLES ==========
     let gpsWatchId = null;
+    let pendingPlaceId = null;
+    let pendingPlaceTime = 0;
     let lastStablePlaceId = null;
     let lastStableTime = 0;
     let lastLocationUpdate = null;
