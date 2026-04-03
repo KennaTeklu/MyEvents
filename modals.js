@@ -425,25 +425,25 @@ function openBusyModal(busy = null, dateStr = null) {
     if (busyDraftManager) {
         busyDraftManager.loadDraft().then((draft) => {
             if (draft && Object.keys(draft).length > 0) {
-                // Draft logic warning applies to busy modal too now
-                const banner = document.createElement('div');
-                banner.id = 'dirtyWarningBusy';
-                banner.className = 'bg-yellow-50 border-l-4 border-yellow-500 text-yellow-700 p-3 text-sm mb-4 rounded shadow-sm flex justify-between items-center';
-                banner.innerHTML = `
-                    <div class="flex items-center gap-2">
-                        <i class="fas fa-file-signature"></i>
-                        <span class="font-medium">Draft restored</span>
-                    </div>
-                    <button type="button" onclick="this.closest('#dirtyWarningBusy').remove(); if(window.busyDraftManager) window.busyDraftManager.clearDraft();" class="bg-white px-2 py-1 rounded border border-yellow-200 hover:bg-yellow-100 transition font-bold text-xs">Clear</button>
-                `;
-                
                 const modal = document.getElementById('busyModal');
-                // Safely find the header by its tailwind classes or fallback to the card itself
-                const header = modal.querySelector('.flex.justify-between.items-center');
-                const card = modal.querySelector('.modal-card');
                 
-                if (!document.getElementById('dirtyWarningBusy')) {
-                    if (header) {
+                if (modal && !document.getElementById('dirtyWarningBusy')) {
+                    const banner = document.createElement('div');
+                    banner.id = 'dirtyWarningBusy';
+                    banner.className = 'bg-yellow-50 border border-yellow-200 text-yellow-800 p-3 text-sm mb-4 rounded shadow-sm flex justify-between items-center';
+                    banner.innerHTML = `
+                        <div class="flex items-center gap-2">
+                            <i class="fas fa-file-signature"></i>
+                            <span class="font-medium">Draft restored</span>
+                        </div>
+                        <button type="button" onclick="this.closest('#dirtyWarningBusy').remove(); if(window.busyDraftManager) window.busyDraftManager.clearDraft();" class="bg-white px-3 py-1 rounded border border-yellow-300 hover:bg-yellow-100 transition font-bold text-xs">Clear</button>
+                    `;
+                    
+                    // Safely find the header by its tailwind classes or fallback to the card itself
+                    const header = modal.querySelector('.flex.justify-between.items-center');
+                    const card = modal.querySelector('.modal-card');
+                    
+                    if (header && header.parentNode) {
                         header.insertAdjacentElement('afterend', banner);
                     } else if (card) {
                         card.prepend(banner);
@@ -452,7 +452,7 @@ function openBusyModal(busy = null, dateStr = null) {
             }
             ModalManager.open('busyModal');
         }).catch(err => {
-            console.error('Failed to load busy draft:', err);
+            console.warn('Failed to load busy draft:', err);
             ModalManager.open('busyModal');
         });
     } else {
