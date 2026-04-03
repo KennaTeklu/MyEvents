@@ -75,12 +75,15 @@ async function loadData() {
             places.push({ ...defaultPlace, id });
         }
         
-        // ONLY default to the first place if currentPlaceId is completely undefined
-        if (!currentPlaceId) {
+        // Retrieve the last known place from the persistent database
+        const savedPlaceId = await getSetting('lastKnownPlaceId');
+        if (savedPlaceId) {
+            currentPlaceId = savedPlaceId;
+        } else if (!currentPlaceId) {
             currentPlaceId = places[0]?.id || 1;
         }
 
-        // Verify currentPlaceId actually exists in the loaded places array
+        // Verify currentPlaceId actually exists in the loaded places array (in case it was deleted)
         const validPlace = places.find(p => p.id === currentPlaceId);
         if (!validPlace) {
             currentPlaceId = places[0]?.id || 1;
@@ -515,9 +518,14 @@ window.addEventListener('DOMContentLoaded', async () => {
                 }
             }
 
-            // ALWAYS open the GPS modal to give the user the final choice
             if (matched) {
-                showGPSModal(matched, closestDist, lat, lon, true);
+                // We are inside an existing place!
+                currentPlaceId = matched.id;
+                setSetting('lastKnownPlaceId', currentPlaceId); // Persist to DB immediately
+                
+                const placeDisplay = document.getElementById('currentPlaceDisplay');
+                if (placeDisplay) placeDisplay.innerText = `📍 ${matched.name}`;
+                showToast(`📍 Updated: You are at ${matched.name}`, 'success');
             } else if (closest && closestDist < 300) { 
                 showGPSModal(closest, closestDist, lat, lon, false);
             } else {
@@ -1078,10 +1086,12 @@ function showGPSModal(place, distance, lat, lon, isExactMatch = false) {
         updateCoordsBtn.classList.remove('hidden');
         sublocationBtn.classList.remove('hidden');
         
-        confirmBtn.onclick = () => {
+        confirmBtn.onclick = async () => {
             currentPlaceId = place.id;
             currentLocation.sublocationId = null;
             currentLocation.sublocationName = null;
+            
+            await setSetting('lastKnownPlaceId', currentPlaceId); // Persist to DB
             
             const placeDisplay = document.getElementById('currentPlaceDisplay');
             if (placeDisplay) placeDisplay.innerText = `📍 ${place.name}`;
@@ -1138,6 +1148,8 @@ function showGPSModal(place, distance, lat, lon, isExactMatch = false) {
             currentPlaceId = id;
             currentLocation.sublocationId = null;
             currentLocation.sublocationName = null;
+            
+            await setSetting('lastKnownPlaceId', currentPlaceId); // Persist to DB
 
             // Load data completely to ensure 'places' array is perfectly in sync with the DB
             await loadData();
