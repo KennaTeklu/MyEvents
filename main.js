@@ -452,6 +452,16 @@ window.addEventListener('DOMContentLoaded', async () => {
             fabIcon.style.transform = 'rotate(0deg)';
             if (typeof openTodoModal === 'function') openTodoModal();
         });
+        document.getElementById('fabViewTodos')?.addEventListener('click', () => {
+            fabMenu.classList.add('scale-0', 'opacity-0', 'pointer-events-none');
+            fabIcon.style.transform = 'rotate(0deg)';
+            if (typeof TodoPanel !== 'undefined') TodoPanel.toggle();
+        });
+        document.getElementById('fabViewEvents')?.addEventListener('click', () => {
+            fabMenu.classList.add('scale-0', 'opacity-0', 'pointer-events-none');
+            fabIcon.style.transform = 'rotate(0deg)';
+            if (typeof showEventListModal === 'function') showEventListModal();
+        });
     }
 
     document.getElementById('gpsUpdateBtn')?.addEventListener('click', () => {

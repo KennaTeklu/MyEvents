@@ -94,9 +94,29 @@ const Scheduler = (function() {
         return currentSlot.startMin >= requiredStart;
     }
 
-    // ========== CORE SCHEDULING ALGORITHM (Full & Incremental) ==========
+        // ========== CORE SCHEDULING ALGORITHM (Full & Incremental) ==========
     async function schedule(startDate, endDate, incremental = false, affectedEventId = null) {
-        let eventsToSchedule = events;
+        let eventsToSchedule = [...events];
+        
+        // --- SMART TODO INJECTION ---
+        // Inject high-priority incomplete todos as flexible 30-min events
+        const highPrioTodos = todos.filter(t => !t.completed && t.priority >= 4);
+        highPrioTodos.forEach(todo => {
+            eventsToSchedule.push({
+                id: `todo_${todo.id}`, // Unique ID prefix
+                name: `📝 ${todo.name}`,
+                openTime: "08:00",
+                closeTime: "21:00",
+                minStay: 30,
+                maxStay: 30,
+                priority: todo.priority,
+                color: "#10b981", // Success green for todos
+                repeat: "none",
+                startDate: todo.dueDate || formatDate(new Date()),
+                isTodo: true
+            });
+        });
+
         const startStr = formatDate(startDate);
         const endStr = formatDate(endDate);
 
@@ -188,7 +208,12 @@ const Scheduler = (function() {
             let travelMinsFromPrev = 0, restMinsFromPrev = 0, travelMinsToNext = 0;
             
             if (prevEvent) {
-                travelMinsFromPrev = await getTravelTimeBetweenEvents(events.find(e=>e.id===prevEvent.eventId), prevEvent.dateStr, event, slot.dateStr);
+                // Handle To-do virtual IDs vs real Event IDs
+                const prevObj = prevEvent.eventId.toString().startsWith('todo_') 
+                    ? eventsToSchedule.find(e => e.id === prevEvent.eventId)
+                    : events.find(e => e.id === prevEvent.eventId);
+                
+                travelMinsFromPrev = await getTravelTimeBetweenEvents(prevObj, prevEvent.dateStr, event, slot.dateStr);
                 restMinsFromPrev = getRestMinutes(event, travelMinsFromPrev, restPolicy, farMinutes);
                 if (slot.startMin < prevEvent.endMin + travelMinsFromPrev + restMinsFromPrev) continue; // Cannot fit after previous!
             }

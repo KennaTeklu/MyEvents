@@ -262,27 +262,31 @@ function openEventModal(event = null, dateStr = null) {
 function closeEventModalWithCheck() {
     if (isFormDirty('eventModal', eventFormSnapshot)) {
         const existing = document.getElementById('dirtyWarning');
-        if (existing) return; // already showing
+        if (existing) return; 
         
         const modal = document.getElementById('eventModal');
-        const header = modal.querySelector('.modal-header');
+        const target = modal.querySelector('.modal-header') || modal.querySelector('.modal-card');
         
+        if (!target) {
+            ModalManager.close('eventModal');
+            return;
+        }
+
         const warning = document.createElement('div');
         warning.id = 'dirtyWarning';
-        warning.className = 'bg-red-100 border-l-4 border-red-500 text-red-700 p-4 mb-4 rounded shadow-md flex justify-between items-center';
+        warning.className = 'bg-red-100 border-l-4 border-red-500 text-red-700 p-4 mb-4 rounded shadow-md flex justify-between items-center sticky top-0 z-50';
         warning.innerHTML = `
-            <div>
+            <div style="flex:1">
                 <strong class="block font-bold"><i class="fas fa-exclamation-triangle"></i> Unsaved Changes</strong>
-                <span class="text-sm">Are you sure you want to discard your changes?</span>
+                <span class="text-sm">Discard your progress?</span>
             </div>
             <div class="flex gap-2">
-                <button id="keepEditingBtn" class="bg-white text-gray-700 border border-gray-300 px-3 py-1 rounded shadow-sm text-sm font-bold hover:bg-gray-50">Keep Editing</button>
-                <button id="discardChangesBtn" class="bg-red-600 text-white px-3 py-1 rounded shadow-sm text-sm font-bold hover:bg-red-700">Discard</button>
+                <button id="keepEditingBtn" class="bg-white text-gray-700 border border-gray-300 px-3 py-1 rounded shadow-sm text-xs font-bold hover:bg-gray-50">Keep Editing</button>
+                <button id="discardChangesBtn" class="bg-red-600 text-white px-3 py-1 rounded shadow-sm text-xs font-bold hover:bg-red-700">Discard</button>
             </div>
         `;
         
-        // Insert right below the header
-        header.insertAdjacentElement('afterend', warning);
+        target.insertAdjacentElement('afterend', warning);
         
         document.getElementById('discardChangesBtn').onclick = async () => {
             warning.remove();
@@ -395,7 +399,7 @@ function openBusyModal(busy = null, dateStr = null) {
     }
 
     if (busy) {
-        editingBusyId = busy.id; // FIX: set the ID for editing
+        editingBusyId = busy.id;
         populate(busy);
         if (busyDraftManager) busyDraftManager.clearDraft();
         ModalManager.open('busyModal');
@@ -404,7 +408,7 @@ function openBusyModal(busy = null, dateStr = null) {
     }
 
     // New busy block: populate empty form
-    editingBusyId = null; // FIX: clear editing ID for new block
+    editingBusyId = null;
     populate({ date: dateStr || formatDate(new Date()) });
     if (busyDraftManager) {
         busyDraftManager.loadDraft().then(() => {
