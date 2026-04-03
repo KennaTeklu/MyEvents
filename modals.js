@@ -245,8 +245,9 @@ function closeEventModalWithCheck() {
             </div>
         `;
         footer.insertAdjacentElement('afterend', warning);
-        document.getElementById('discardChangesBtn').onclick = () => {
+        document.getElementById('discardChangesBtn').onclick = async () => {
             warning.remove();
+            if (eventDraftManager) await eventDraftManager.clearDraft();
             ModalManager.close('eventModal');
         };
         document.getElementById('keepEditingBtn').onclick = () => warning.remove();
@@ -504,7 +505,7 @@ function showFeedbackModal(event, dateStr) {
 }
 
 // ========== CONFLICT RESOLUTION MODAL ==========
-function showConflictModal(conflictInfo) {
+function showConflictModal(conflictInfo) {function showConflictModal(conflictInfo) {
     const modal = document.getElementById('conflictModal');
     if (!modal) return;
 
@@ -777,4 +778,5 @@ function showUndoToast(action, data) {
         showToast('Undone', 'success');
     };
     setTimeout(() => toast.remove(), 5000);
+}
 }

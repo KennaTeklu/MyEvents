@@ -214,6 +214,43 @@ const BusyManager = (function() {
             await this.addBusyBlock(firstBlock);
             await this.addBusyBlock(secondBlock);
         },
+
+        /**
+         * Carve a hole out of a busy block to perfectly fit an event.
+         */
+        async carveBusyBlock(blockId, carveStartStr, carveEndStr) {
+            const block = busyBlocks.find(b => b.id === blockId);
+            if (!block) throw new Error('Busy block not found');
+            if (block.recurrence !== 'once') {
+                throw new Error('Splitting currently only supported for once-off busy blocks');
+            }
+            
+            const bStart = toMinutes(block.startTime);
+            const bEnd = toMinutes(block.endTime);
+            const cStart = toMinutes(carveStartStr);
+            const cEnd = toMinutes(carveEndStr);
+            
+            // Delete the original overarching block
+            await this.deleteBusyBlock(blockId);
+            
+            // Create the block BEFORE the event (if there is space)
+            if (cStart > bStart) {
+                await this.addBusyBlock({
+                    ...block,
+                    startTime: fromMinutes(bStart),
+                    endTime: fromMinutes(cStart)
+                });
+            }
+            
+            // Create the block AFTER the event (if there is space)
+            if (cEnd < bEnd) {
+                await this.addBusyBlock({
+                    ...block,
+                    startTime: fromMinutes(cEnd),
+                    endTime: fromMinutes(bEnd)
+                });
+            }
+        },
         
         /**
          * Merge two busy blocks (if they are adjacent or overlapping on the same day).

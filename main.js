@@ -323,43 +323,34 @@ window.drop_handler = async function(ev) {
     ev.preventDefault();
     const targetCell = ev.target.closest('.day-cell');
     if (!targetCell) return;
+    
     let data;
-    try {
-        data = JSON.parse(ev.dataTransfer.getData("text/plain"));
-    } catch (e) { return; }
+    try { data = JSON.parse(ev.dataTransfer.getData("text/plain")); } 
+    catch (e) { return; }
+    
     const eventId = data.eventId;
     const oldDateStr = data.dateStr;
     const targetDateStr = targetCell.dataset.date;
-    if (!eventId || !oldDateStr || !targetDateStr) return;
-    if (oldDateStr === targetDateStr) return;
+    
+    if (!eventId || !oldDateStr || !targetDateStr || oldDateStr === targetDateStr) return;
 
-    const key = `${eventId}_${oldDateStr}`;
-    const newKey = `${eventId}_${targetDateStr}`;
-    if (overrides.has(newKey)) {
-        showToast('Target date already has an override for this event', 'warning');
-        return;
-    }
     const originalEvent = events.find(e => e.id === eventId);
     if (!originalEvent) {
         showToast('Event not found', 'error');
         return;
     }
+
+    // Create the new occurrence (exception) on the target date
     const overrideEvent = { ...originalEvent, startDate: targetDateStr };
-    const override = {
-        compositeKey: newKey,
-        eventId: eventId,
-        dateStr: targetDateStr,
-        type: 'exception',
-        newEvent: overrideEvent
-    };
-    if (overrides.has(key)) {
-        await deleteRecord(STORES.OVERRIDES, key);
-        overrides.delete(key);
-    }
-    await putRecord(STORES.OVERRIDES, override);
-    overrides.set(newKey, override);
+    
+    // 1. Skip the original occurrence (mark as nogo)
+    await EventManager.applyOverride(eventId, oldDateStr, 'nogo');
+    
+    // 2. Create the exception on the new date
+    await EventManager.applyOverride(eventId, targetDateStr, 'exception', overrideEvent);
+    
     await fullRefresh();
-    showToast(`Moved event to ${targetDateStr}`);
+    showToast(`Moved to ${formatDateDisplay(targetDateStr)}`, 'success');
 };
 
 // ========== MAIN INITIALIZATION ==========
@@ -682,48 +673,66 @@ window.addEventListener('DOMContentLoaded', async () => {
                     }
                 }
 
-if (hasConflict) {
-    let action = 'ignore';
-    if (typeof showConflictModal === 'function') {
-        action = await showConflictModal({
-            message: conflictMsg,
-            busyObj: conflictBusyObj,
-            eventObj: eventData
-        });
-    } else {
-        const result = confirm(conflictMsg + '\n\nSave anyway?');
-        action = result ? 'ignore' : 'cancel';
-    }
+                if (hasConflict) {
+                    // Use the promise-based modal (returns 'reschedule', 'ignore', 'overlap', 'split', or 'cancel')
+                    let userAction = 'ignore';
+                    if (typeof showConflictModal === 'function') {
+                        userAction = await showConflictModal({
+                            message: conflictMsg,
+                            busyObj: conflictBusyObj,
+                            eventObj: eventData
+                        });
+                    } else {
+                        const result = confirm(conflictMsg + '\n\nSave anyway?');
+                        userAction = result ? 'ignore' : 'cancel';
+                    }
 
-    if (action === 'cancel') {
-        throw new Error("Conflict check aborted save");
-    }
+                    if (userAction === 'cancel') {
+                        throw new Error("Conflict check aborted save");
+                    }
 
-    if (action === 'reschedule') {
-        if (typeof ConflictHealer !== 'undefined' && ConflictHealer.resolveOne) {
-            const success = await ConflictHealer.resolveOne(eventData, eventData.startDate);
-            if (success) {
-                showToast('Event rescheduled to a free slot', 'success');
-                await fullRefresh();
-                ModalManager.close('eventModal');
-                return;
-            } else {
-                showToast('No alternative time available. Please adjust manually.', 'error');
-                throw new Error("Reschedule failed");
-            }
-        } else {
-            showToast('Rescheduling not available. Saving anyway.', 'warning');
-        }
-    }
-}
+                    // Save the event first (so it exists for overrides)
+                    let savedEventId;
+                    if (editingEventId && editingDateStr) {
+                        await EventManager.applyOverride(editingEventId, editingDateStr, 'exception', eventData);
+                        savedEventId = editingEventId;
+                    } else if (editingEventId) {
+                        await EventManager.updateEvent(editingEventId, eventData);
+                        savedEventId = editingEventId;
+                    } else {
+                        savedEventId = await EventManager.addEvent(eventData);
+                    }
 
-                // Save via EventManager
-                if (editingEventId && editingDateStr) {
-                    await EventManager.applyOverride(editingEventId, editingDateStr, 'exception', eventData);
-                } else if (editingEventId) {
-                    await EventManager.updateEvent(editingEventId, eventData);
+                    // Handle specific resolutions after saving
+                    if (userAction === 'overlap') {
+                        // Lock the event so optimizer doesn't auto-move it
+                        await EventManager.applyOverride(savedEventId, eventData.startDate, 'locked');
+                        showToast('Event forced to overlap', 'warning');
+                    } else if (userAction === 'split' && conflictBusyObj) {
+                        // Carve a hole in the busy block (using splitBusyBlock)
+                        if (typeof BusyManager !== 'undefined' && BusyManager.splitBusyBlock) {
+                            await BusyManager.splitBusyBlock(
+                                conflictBusyObj.id,
+                                eventData.startDate,
+                                eventData.startTime,
+                                true
+                            );
+                            showToast('Busy block split to fit event', 'success');
+                        } else {
+                            showToast('Split not available', 'error');
+                        }
+                    } else if (userAction === 'reschedule') {
+                        showToast('Event saved. Optimizer will reschedule it.', 'info');
+                    }
                 } else {
-                    await EventManager.addEvent(eventData);
+                    // Normal save (No Conflict)
+                    if (editingEventId && editingDateStr) {
+                        await EventManager.applyOverride(editingEventId, editingDateStr, 'exception', eventData);
+                    } else if (editingEventId) {
+                        await EventManager.updateEvent(editingEventId, eventData);
+                    } else {
+                        await EventManager.addEvent(eventData);
+                    }
                 }
 
                 if (eventDraftManager) await eventDraftManager.clearDraft();

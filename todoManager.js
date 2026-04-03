@@ -159,6 +159,40 @@ const TodoManager = (function() {
                 }
             }
         },
+
+        /**
+         * Toggle to-do completion state (allows un-checking).
+         */
+        async toggleTodoCompletion(todoId) {
+            const todo = todos.find(t => t.id === todoId);
+            if (!todo) throw new Error(`To-do not found`);
+
+            if (todo.completed) {
+                // Uncheck
+                const updated = { ...todo, completed: false, completedAt: null, updatedAt: new Date().toISOString() };
+                await putRecord(STORES.TODOS, updated);
+            } else {
+                // Check
+                const updated = { ...todo, completed: true, completedAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+                await putRecord(STORES.TODOS, updated);
+                
+                // Handle recurrence on check
+                if (todo.recurrence !== 'none') {
+                    const nextDue = getNextOccurrence(todo.dueDate, todo.recurrence);
+                    if (nextDue) {
+                        const newTodo = {
+                            ...todo,
+                            dueDate: formatDate(nextDue),
+                            completed: false,
+                            createdAt: new Date().toISOString()
+                        };
+                        delete newTodo.id;
+                        await this.addTodo(newTodo);
+                    }
+                }
+            }
+            await refreshTodos();
+        },
         
         /**
          * Get a to‑do by ID.

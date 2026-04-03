@@ -139,9 +139,8 @@ const TodoPanel = (function() {
             el.addEventListener('click', async (e) => {
                 e.stopPropagation();
                 const id = parseInt(el.dataset.id);
-                await TodoManager.completeTodo(id);
+                await TodoManager.toggleTodoCompletion(id);
                 await render();
-                // Update calendar if todos are shown there
                 if (userSettings.showTodosInCalendar && typeof renderCalendar === 'function') renderCalendar();
             });
         });
