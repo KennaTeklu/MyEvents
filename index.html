@@ -103,8 +103,17 @@
         </div>
     </div>
 
-    <div id="fab" class="fixed bottom-6 right-6 bg-blue-600 w-14 h-14 rounded-full flex items-center justify-center text-white text-2xl shadow-lg cursor-pointer hover:bg-blue-700 transition hidden" aria-label="Add new event">
-        <i class="fas fa-plus"></i>
+    <div id="fabWrapper" class="fixed bottom-6 right-6 z-50 hidden">
+        <!-- FAB Menu -->
+        <div id="fabMenu" class="absolute bottom-16 right-0 flex flex-col gap-3 items-end transition-all origin-bottom-right scale-0 opacity-0 pointer-events-none">
+            <button id="fabAddTodo" class="bg-green-600 text-white px-4 py-2 rounded-full shadow-md hover:bg-green-700 flex items-center gap-2 text-sm whitespace-nowrap"><i class="fas fa-check-square"></i> Add To‑do</button>
+            <button id="fabAddBusy" class="bg-red-500 text-white px-4 py-2 rounded-full shadow-md hover:bg-red-600 flex items-center gap-2 text-sm whitespace-nowrap"><i class="fas fa-ban"></i> Add Busy Time</button>
+            <button id="fabAddEvent" class="bg-blue-600 text-white px-4 py-2 rounded-full shadow-md hover:bg-blue-700 flex items-center gap-2 text-sm whitespace-nowrap"><i class="fas fa-calendar-plus"></i> Add Event (Optimized)</button>
+        </div>
+        <!-- Main FAB Button -->
+        <div id="fab" class="bg-blue-600 w-14 h-14 rounded-full flex items-center justify-center text-white text-2xl shadow-lg cursor-pointer hover:bg-blue-700 transition-transform">
+            <i class="fas fa-plus transition-transform duration-300" id="fabIcon"></i>
+        </div>
     </div>
 
     <!-- ========== NOTIFICATION PANEL ========== -->

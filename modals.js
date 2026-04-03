@@ -13,6 +13,21 @@
  * All wizard and event list code has been moved to their respective modules.
  */
 
+// ========== GLOBAL CLOSE BUTTON HANDLER ==========
+document.addEventListener('click', (e) => {
+    const closeBtn = e.target.closest('.modal-close');
+    if (closeBtn) {
+        const modal = closeBtn.closest('.modal-backdrop');
+        if (modal) {
+            if (modal.id === 'eventModal') {
+                closeEventModalWithCheck();
+            } else {
+                ModalManager.close(modal.id);
+            }
+        }
+    }
+});
+
 // ========== MODAL MANAGER (Global Focus Trap) ==========
 if (typeof ModalManager === 'undefined') {
     window.ModalManager = {
@@ -231,20 +246,28 @@ function openEventModal(event = null, dateStr = null) {
 function closeEventModalWithCheck() {
     if (isFormDirty('eventModal', eventFormSnapshot)) {
         const existing = document.getElementById('dirtyWarning');
-        if (existing) { existing.remove(); return; }
+        if (existing) return; // already showing
+        
         const modal = document.getElementById('eventModal');
-        const footer = modal.querySelector('.flex.gap-2.justify-end');
+        const header = modal.querySelector('.modal-header');
+        
         const warning = document.createElement('div');
         warning.id = 'dirtyWarning';
-        warning.className = 'modal-dirty-warning mt-2';
+        warning.className = 'bg-red-100 border-l-4 border-red-500 text-red-700 p-4 mb-4 rounded shadow-md flex justify-between items-center';
         warning.innerHTML = `
-            <span>You have unsaved changes.</span>
+            <div>
+                <strong class="block font-bold"><i class="fas fa-exclamation-triangle"></i> Unsaved Changes</strong>
+                <span class="text-sm">Are you sure you want to discard your changes?</span>
+            </div>
             <div class="flex gap-2">
-                <button id="discardChangesBtn" class="text-xs bg-red-100 text-red-700 px-3 py-1 rounded-full">Discard</button>
-                <button id="keepEditingBtn" class="text-xs bg-gray-200 px-3 py-1 rounded-full">Keep editing</button>
+                <button id="keepEditingBtn" class="bg-white text-gray-700 border border-gray-300 px-3 py-1 rounded shadow-sm text-sm font-bold hover:bg-gray-50">Keep Editing</button>
+                <button id="discardChangesBtn" class="bg-red-600 text-white px-3 py-1 rounded shadow-sm text-sm font-bold hover:bg-red-700">Discard</button>
             </div>
         `;
-        footer.insertAdjacentElement('afterend', warning);
+        
+        // Insert right below the header
+        header.insertAdjacentElement('afterend', warning);
+        
         document.getElementById('discardChangesBtn').onclick = async () => {
             warning.remove();
             if (eventDraftManager) await eventDraftManager.clearDraft();

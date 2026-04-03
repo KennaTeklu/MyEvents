@@ -218,21 +218,31 @@ async function renderMobileWeekView(container) {
     const totalMinutes = (latestHour - earliestHour) * 60;
     const dayHeight = totalMinutes * PIXELS_PER_MIN;
 
-    let html = `<div class="weekdays flex overflow-x-auto">`;
+    let html = `<div class="timeline-container" style="display: flex; flex-direction: column; flex: 1; overflow: auto; position: relative; height: 100%; background: var(--color-bg);">`;
+    
+    // Header Row (Sticky to top)
+    html += `<div class="weekdays flex" style="position: sticky; top: 0; z-index: 30; background: var(--color-bg); border-bottom: 1px solid var(--color-border); width: max-content; min-width: 100%;">`;
+    html += `<div style="width: 60px; flex-shrink: 0; position: sticky; left: 0; z-index: 40; background: var(--color-surface); border-right: 1px solid var(--color-border);"></div>`;
     days.forEach(d => {
         const isToday = formatDate(d) === formatDate(new Date());
-        html += `<div class="day-header text-center font-semibold py-2 ${isToday ? 'today-header' : ''}" style="min-width: 80px; flex-shrink: 0;">
+        html += `<div class="day-header text-center font-semibold py-2 ${isToday ? 'today-header' : ''}" style="width: 90px; flex-shrink: 0;">
                     ${d.toLocaleDateString(undefined, { weekday: 'short' })}<br>${d.getDate()}
                  </div>`;
     });
     html += `</div>`;
-    html += `<div class="timeline-container" style="display: flex;">`;
-    html += `<div class="time-col" style="width: 70px; flex-shrink: 0;">`;
+
+    // Body Row
+    html += `<div style="display: flex; width: max-content; min-width: 100%;">`;
+    
+    // Time Column (Sticky to left)
+    html += `<div class="time-col" style="width: 60px; flex-shrink: 0; background: var(--color-surface); position: sticky; left: 0; z-index: 20; border-right: 1px solid var(--color-border);">`;
     for (let minute = earliestHour * 60; minute <= latestHour * 60; minute += 30) {
-        html += `<div style="height: ${30 * PIXELS_PER_MIN}px; display: flex; align-items: center; justify-content: flex-end; padding-right: 8px; font-size: 0.7rem;">${formatTime(minute)}</div>`;
+        html += `<div style="height: ${30 * PIXELS_PER_MIN}px; display: flex; align-items: flex-start; justify-content: flex-end; padding-right: 8px; padding-top: 4px; font-size: 0.65rem; color: var(--color-text-muted); box-sizing: border-box;">${formatTime(minute)}</div>`;
     }
     html += `</div>`;
-    html += `<div class="days-row" style="display: flex; flex: 1; overflow-x: auto;">`;
+    
+    // Grid Array
+    html += `<div class="days-row" style="display: flex; flex: 1;">`;
 
     for (const day of days) {
         const dayStr = formatDate(day);
@@ -243,9 +253,9 @@ async function renderMobileWeekView(container) {
         html += `<div class="day-cell relative" data-date="${dayStr}" 
             ondragover="dragover_handler(event)"
             ondrop="drop_handler(event)"
-            style="flex: 0 0 90px; min-width: 90px; height: ${dayHeight}px; position: relative; background: ${isToday ? '#eff6ff' : 'white'}; border-right: 1px solid #e5e7eb;">`;
+            style="flex: 0 0 90px; width: 90px; height: ${dayHeight}px; position: relative; background: ${isToday ? 'var(--color-today-bg)' : 'transparent'}; border-right: 1px solid var(--color-border);">`;
 
-        // Busy overlays (with data-busy-id)
+        // Busy overlays
         for (const busy of dayBusy) {
             const startMin = toMinutes(busy.startTime);
             const endMin = toMinutes(busy.endTime);
@@ -262,7 +272,7 @@ async function renderMobileWeekView(container) {
         if (userSettings.showTodosInCalendar) {
             const todosDue = todos.filter(t => !t.completed && t.dueDate === dayStr);
             if (todosDue.length > 0) {
-                html += `<div class="todo-badge" style="position: absolute; top: 2px; right: 2px; background: #f59e0b; color: white; border-radius: 12px; padding: 0px 6px; font-size: 10px; font-weight: bold;">📝${todosDue.length}</div>`;
+                html += `<div class="todo-badge" style="position: absolute; top: 2px; right: 2px; background: var(--color-warning); color: white; border-radius: var(--radius-pill); padding: 0px 6px; font-size: 10px; font-weight: bold; z-index: 15;">📝${todosDue.length}</div>`;
             }
         }
 
@@ -294,20 +304,20 @@ async function renderMobileWeekView(container) {
                             data-id="${ev.id}" data-date="${dayStr}"
                             draggable="true"
                             ondragstart="dragstart_handler(event)"
-                            style="position: absolute; top: ${top}px; height: ${height}px; left: 2px; right: 2px; background-color: ${ev.color || '#3b82f6'}; border-radius: 6px; padding: 2px 4px; font-size: 0.7rem; font-weight: 600; color: white; cursor: pointer; overflow: hidden; white-space: normal; z-index: 10;"
+                            style="top: ${top}px; height: ${height}px; background-color: ${ev.color || 'var(--color-primary)'};"
                             role="button" tabindex="0"
                             aria-label="${escapeHtml(ev.name)}, ${formatTime(startMin)} to ${formatTime(endMin)}">
-                            ${escapeHtml(ev.name)}
-                            <span class="event-time" style="font-size: 0.6rem; font-weight: normal; display: block;">${formatTime(startMin)}–${formatTime(endMin)}</span>
-                            ${hasConflict ? '<span class="conflict-label" style="position: absolute; top: 2px; right: 2px; background: red; color: white; border-radius: 50%; width: 16px; height: 16px; font-size: 10px; text-align: center;">⚠️</span>' : ''}
-                            ${isScheduled ? '<span class="scheduled-label" style="position: absolute; bottom: 2px; right: 2px; font-size: 8px; background: rgba(0,0,0,0.4); padding: 0px 2px; border-radius: 3px;">⚙️</span>' : ''}
+                            <span class="event-name">${escapeHtml(ev.name)}</span>
+                            <span class="event-time">${formatTime(startMin)}–${formatTime(endMin)}</span>
+                            ${hasConflict ? '<span class="conflict-label" style="position: absolute; top: 2px; right: 2px; background: var(--color-danger); color: white; border-radius: 50%; width: 16px; height: 16px; font-size: 10px; text-align: center; display: flex; align-items: center; justify-content: center;">⚠️</span>' : ''}
+                            ${isScheduled ? '<span class="scheduled-label" style="position: absolute; bottom: 2px; right: 2px; font-size: 8px; background: rgba(0,0,0,0.4); padding: 0px 3px; border-radius: 3px;">⚙️</span>' : ''}
                         </div>`;
             }
         }
         html += `</div>`;
     }
 
-    html += `</div></div>`;
+    html += `</div></div></div>`; // Close days-row, body-row, and timeline-container
     container.innerHTML = html;
 }
 
@@ -331,18 +341,23 @@ async function renderMonthView(container) {
 
     const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
     const orderedDayNames = [...dayNames.slice(firstDayOfWeek), ...dayNames.slice(0, firstDayOfWeek)];
-    let html = `<div class="month-view"><div class="weekdays flex">${orderedDayNames.map(d => `<div class="day-header flex-1 text-center py-2">${d}</div>`).join('')}</div>`;
+    let html = `<div class="month-view" style="display: flex; flex-direction: column; height: 100%;">
+                  <div class="weekdays flex shrink-0 bg-white dark:bg-gray-800 z-10 sticky top-0 border-b border-gray-200 dark:border-gray-700">
+                    ${orderedDayNames.map(d => `<div class="day-header flex-1 text-center py-2">${d}</div>`).join('')}
+                  </div>
+                  <div class="month-grid">`;
 
     for (const week of weeks) {
-        html += `<div class="flex">`;
+        html += `<div class="flex" style="width: 100%;">`;
         for (const date of week) {
             const dateStr = formatDate(date);
             const dayEvents = getDisplayEventsForDate(dateStr);
             const isCurrentMonth = date.getMonth() === month;
             const isToday = dateStr === formatDate(new Date());
 
-            html += `<div class="day-cell flex-1 border min-h-24 p-1 ${isCurrentMonth ? '' : 'text-gray-400'} ${isToday ? 'today-cell' : ''}" data-date="${dateStr}">
-                        <div class="text-right text-sm font-semibold cursor-pointer" data-nav-date="${dateStr}">${date.getDate()}</div>`;
+            html += `<div class="month-cell flex-1 ${isCurrentMonth ? '' : 'opacity-50'} ${isToday ? 'today' : ''}" data-date="${dateStr}">
+                        <div class="date-number cursor-pointer" data-nav-date="${dateStr}">${date.getDate()}</div>
+                        <div class="month-events">`;
             const maxDisplay = 3;
             for (let i = 0; i < Math.min(dayEvents.length, maxDisplay); i++) {
                 const ev = dayEvents[i];
@@ -350,26 +365,33 @@ async function renderMonthView(container) {
                 const hasConflict = getDisplayBusyForDate(dateStr).some(b => toMinutes(ev.endTime) > toMinutes(b.startTime) && toMinutes(ev.startTime) < toMinutes(b.endTime)) ||
                                    dayEvents.some(other => other.id !== ev.id && toMinutes(ev.endTime) > toMinutes(other.startTime) && toMinutes(ev.startTime) < toMinutes(other.endTime));
                 const isScheduled = ev.isScheduled || false;
-                html += `<div class="event-block-month ${isNogo ? 'nogo' : ''} ${hasConflict ? 'conflict-pulse' : ''} ${isScheduled ? 'scheduled' : ''} text-xs rounded p-1 mt-1 truncate"
-                            data-id="${ev.id}" data-date="${dateStr}" style="background-color:${ev.color || '#3b82f6'};">
+                
+                let extraClasses = '';
+                if (isNogo) extraClasses += ' nogo';
+                if (hasConflict) extraClasses += ' conflict';
+                if (isScheduled) extraClasses += ' scheduled';
+
+                html += `<div class="event-block-month${extraClasses}"
+                            data-id="${ev.id}" data-date="${dateStr}" style="background-color:${ev.color || 'var(--color-primary)'};">
                             ${escapeHtml(ev.name)}
-                            ${isScheduled ? '⚙️' : ''}
                          </div>`;
             }
+            html += `</div>`; // Close month-events
+
             if (dayEvents.length > maxDisplay) {
-                html += `<div class="text-xs text-blue-500 mt-1 cursor-pointer more-events" data-date="${dateStr}">+${dayEvents.length - maxDisplay} more</div>`;
+                html += `<div class="month-overflow-indicator more-events" data-date="${dateStr}">+${dayEvents.length - maxDisplay} more</div>`;
             }
             if (userSettings.showTodosInCalendar) {
                 const todosDue = todos.filter(t => !t.completed && t.dueDate === dateStr);
                 if (todosDue.length > 0) {
-                    html += `<div class="todo-badge text-xs text-gray-500 mt-1">📝 ${todosDue.length}</div>`;
+                    html += `<div class="text-xs text-gray-500 font-semibold mt-1">📝 ${todosDue.length}</div>`;
                 }
             }
-            html += `</div>`;
+            html += `</div>`; // Close month-cell
         }
-        html += `</div>`;
+        html += `</div>`; // Close week flex row
     }
-    html += `</div>`;
+    html += `</div></div>`;
     container.innerHTML = html;
 
     // Attach "more events" click handlers
@@ -387,11 +409,12 @@ async function renderMonthView(container) {
             popup.style.left = e.clientX + 'px';
             popup.style.top = e.clientY + 'px';
             popup.innerHTML = `<div class="font-semibold mb-2">${formatDateDisplay(dateStr)}</div>` +
-                dayEvents.map(ev => `<div class="py-1 border-b border-gray-100 dark:border-slate-700 text-xs">
-                    <span style="display:inline-block; width:8px; height:8px; border-radius:50%; background:${ev.color || '#3b82f6'}; margin-right:4px;"></span>
-                    ${formatTime(toMinutes(ev.startTime))} ${escapeHtml(ev.name)} ${ev.isScheduled ? '⚙️' : ''}
+                dayEvents.map(ev => `<div class="py-1 border-b border-gray-100 dark:border-slate-700 text-xs flex items-center gap-2">
+                    <span style="display:inline-block; width:8px; height:8px; border-radius:50%; background:${ev.color || 'var(--color-primary)'}; flex-shrink:0;"></span>
+                    <span class="font-medium text-gray-500 w-10">${formatTime(toMinutes(ev.startTime))}</span>
+                    <span class="truncate flex-1">${escapeHtml(ev.name)}</span>
                 </div>`).join('') +
-                `<button class="mt-2 text-xs text-gray-400 w-full text-right">Close</button>`;
+                `<button class="mt-3 text-xs text-gray-500 hover:text-gray-800 w-full text-right font-semibold uppercase">Close</button>`;
             document.body.appendChild(popup);
             popup.querySelector('button').onclick = () => popup.remove();
             document.addEventListener('click', () => popup.remove(), { once: true });
@@ -436,14 +459,16 @@ async function renderDayView(container) {
     const totalMinutes = (latestHour - earliestHour) * 60;
     const containerHeight = totalMinutes * PIXELS_PER_MIN;
 
-    let html = `<div class="day-view">
-                    <div class="day-header text-center font-semibold py-2">${date.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })}</div>
-                    <div class="timeline-container" style="display: flex;">
-                        <div class="time-col" style="width: 70px; flex-shrink: 0;">`;
+    let html = `<div class="day-view" style="display: flex; flex-direction: column; height: 100%;">
+                    <div class="day-header text-center font-semibold py-2 shrink-0 bg-white dark:bg-gray-800 z-10 sticky top-0 border-b border-gray-200 dark:border-gray-700">
+                        ${date.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })}
+                    </div>
+                    <div class="timeline-container" style="display: flex; flex: 1; overflow: auto; position: relative;">
+                        <div class="time-col" style="width: 60px; flex-shrink: 0; background: var(--color-surface); position: sticky; left: 0; z-index: 20; border-right: 1px solid var(--color-border);">`;
     for (let minute = earliestHour * 60; minute <= latestHour * 60; minute += 30) {
-        html += `<div style="height: ${30 * PIXELS_PER_MIN}px; display: flex; align-items: center; justify-content: flex-end; padding-right: 8px; font-size: 0.7rem;">${formatTime(minute)}</div>`;
+        html += `<div style="height: ${30 * PIXELS_PER_MIN}px; display: flex; align-items: flex-start; justify-content: flex-end; padding-right: 8px; padding-top: 4px; font-size: 0.65rem; color: var(--color-text-muted); box-sizing: border-box;">${formatTime(minute)}</div>`;
     }
-    html += `</div><div class="day-cell" style="flex:1; position: relative; height: ${containerHeight}px; background: white; border-left: 1px solid #e5e7eb;">`;
+    html += `</div><div class="day-cell" style="flex:1; position: relative; height: ${containerHeight}px; background: var(--color-bg);">`;
 
     for (const busy of dayBusy) {
         const startMin = toMinutes(busy.startTime);
@@ -480,16 +505,18 @@ async function renderDayView(container) {
 
             html += `<div class="event-block${extraClasses}"
                         data-id="${ev.id}" data-date="${dateStr}"
-                        style="position: absolute; top: ${top}px; height: ${height}px; left: 2px; right: 2px; background-color: ${ev.color || '#3b82f6'}; border-radius: 6px; padding: 2px 4px; font-size: 0.7rem; font-weight: 600; color: white; cursor: pointer; overflow: hidden; white-space: normal; z-index: 10;">
-                        ${escapeHtml(ev.name)}
-                        <span class="event-time" style="font-size: 0.6rem; font-weight: normal; display: block;">${formatTime(startMin)}–${formatTime(endMin)}</span>
-                        ${hasConflict ? '<span class="conflict-label" style="position: absolute; top: 2px; right: 2px; background: red; color: white; border-radius: 50%; width: 16px; height: 16px; font-size: 10px; text-align: center;">⚠️</span>' : ''}
-                        ${isScheduled ? '<span class="scheduled-label" style="position: absolute; bottom: 2px; right: 2px; font-size: 8px; background: rgba(0,0,0,0.4); padding: 0px 2px; border-radius: 3px;">⚙️</span>' : ''}
+                        style="top: ${top}px; height: ${height}px; background-color: ${ev.color || 'var(--color-primary)'};"
+                        role="button" tabindex="0"
+                        aria-label="${escapeHtml(ev.name)}, ${formatTime(startMin)} to ${formatTime(endMin)}">
+                        <span class="event-name">${escapeHtml(ev.name)}</span>
+                        <span class="event-time">${formatTime(startMin)}–${formatTime(endMin)}</span>
+                        ${hasConflict ? '<span class="conflict-label" style="position: absolute; top: 2px; right: 2px; background: var(--color-danger); color: white; border-radius: 50%; width: 16px; height: 16px; font-size: 10px; text-align: center; display: flex; align-items: center; justify-content: center;">⚠️</span>' : ''}
+                        ${isScheduled ? '<span class="scheduled-label" style="position: absolute; bottom: 2px; right: 2px; font-size: 8px; background: rgba(0,0,0,0.4); padding: 0px 3px; border-radius: 3px;">⚙️</span>' : ''}
                     </div>`;
         }
     }
 
-    html += `</div></div>`;
+    html += `</div></div></div>`;
     container.innerHTML = html;
     if (dayEvents.length === 0 && (!userSettings.showTodosInCalendar || todos.filter(t => !t.completed && t.dueDate === dateStr).length === 0)) {
         renderEmptyState(container);

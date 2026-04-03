@@ -69,14 +69,14 @@ const Wizard = (function() {
     
     function renderStep1(container) {
         container.innerHTML = `
-            <p class="mb-3 text-gray-600 dark:text-gray-300">Let's set your home location so I know where you start from.</p>
+            <p class="mb-3 text-gray-600 dark:text-gray-300">Let's set your <strong>Base Location</strong> (e.g., Home or Office) so the scheduler knows where you start your day.</p>
             <div id="gpsStatus" class="mb-3 text-sm"></div>
             <button id="wizardUseGps" class="w-full bg-blue-600 text-white px-4 py-3 rounded-xl mb-2 flex items-center justify-center gap-2 hover:bg-blue-700 transition">
-                <i class="fas fa-location-arrow"></i> Use my current location
+                <i class="fas fa-location-arrow"></i> Detect my location
             </button>
             <div id="gpsResult" class="mt-3 hidden">
                 <label class="block text-sm font-medium mb-1">Place name</label>
-                <input type="text" id="wizardHomeName" value="${escapeHtml(wizardData.homeName)}" class="w-full border rounded-xl p-2 mb-2">
+                <input type="text" id="wizardHomeName" value="${escapeHtml(wizardData.homeName)}" placeholder="e.g., Home" class="w-full border rounded-xl p-2 mb-2">
                 <label class="block text-sm font-medium mb-1">Radius (meters)</label>
                 <input type="range" id="wizardHomeRadius" min="10" max="200" step="5" value="${wizardData.homeRadius}" class="w-full">
                 <div class="text-xs text-gray-500 mt-1">Radius: <span id="radiusValue">${wizardData.homeRadius}</span> m</div>
@@ -538,7 +538,21 @@ const Wizard = (function() {
         show() {
             wizardOverlay = document.getElementById('wizardOverlay');
             mainApp = document.getElementById('mainApp');
-            fab = document.getElementById('fab');
+            fab = document.getElementById('fabWrapper');
+            
+            const skipBtn = document.getElementById('wizardSkipBtn');
+            if (skipBtn) {
+                skipBtn.onclick = async () => {
+                    await setSetting('wizardComplete', true);
+                    wizardOverlay.classList.add('hidden');
+                    if (mainApp) {
+                        mainApp.classList.remove('hidden');
+                        mainApp.style.animation = 'fadeInUp 0.4s ease';
+                    }
+                    if (fab) fab.classList.remove('hidden');
+                };
+            }
+
             if (!wizardOverlay) return;
             wizardOverlay.classList.remove('hidden');
             if (mainApp) mainApp.classList.add('hidden');

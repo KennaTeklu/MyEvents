@@ -125,14 +125,14 @@ function updateCurrentPlaceFromLocation() {
 async function showMainApp() {
     const wizardOverlay = document.getElementById('wizardOverlay');
     const mainApp = document.getElementById('mainApp');
-    const fab = document.getElementById('fab');
+    const fabWrapper = document.getElementById('fabWrapper');
     if (wizardOverlay) wizardOverlay.classList.add('hidden');
     if (mainApp) {
         mainApp.classList.remove('hidden');
         mainApp.style.animation = 'fadeInUp 0.4s ease';
         setTimeout(() => { mainApp.style.animation = ''; }, 500);
     }
-    if (fab) fab.classList.remove('hidden');
+    if (fabWrapper) fabWrapper.classList.remove('hidden');
     await fullRefresh();
     if (typeof scrollToNow === 'function') scrollToNow();
     showToast('Ready!', 'success');
@@ -410,15 +410,50 @@ window.addEventListener('DOMContentLoaded', async () => {
         }
         renderCalendar();
     });
+    // --- NEW FAB MENU LOGIC ---
     const fabButton = document.getElementById('fab');
-    if (fabButton) {
+    const fabMenu = document.getElementById('fabMenu');
+    const fabIcon = document.getElementById('fabIcon');
+    
+    if (fabButton && fabMenu) {
         fabButton.addEventListener('click', (e) => {
             e.stopPropagation();
-            console.log('FAB clicked, opening event modal');
+            const isOpen = !fabMenu.classList.contains('scale-0');
+            if (isOpen) {
+                fabMenu.classList.add('scale-0', 'opacity-0', 'pointer-events-none');
+                fabIcon.style.transform = 'rotate(0deg)';
+            } else {
+                fabMenu.classList.remove('scale-0', 'opacity-0', 'pointer-events-none');
+                fabIcon.style.transform = 'rotate(45deg)';
+            }
+        });
+        
+        // Close FAB menu when clicking outside
+        document.addEventListener('click', (e) => {
+            if (!fabButton.contains(e.target) && !fabMenu.contains(e.target)) {
+                fabMenu.classList.add('scale-0', 'opacity-0', 'pointer-events-none');
+                fabIcon.style.transform = 'rotate(0deg)';
+            }
+        });
+
+        // FAB Actions
+        document.getElementById('fabAddEvent')?.addEventListener('click', () => {
+            fabMenu.classList.add('scale-0', 'opacity-0', 'pointer-events-none');
+            fabIcon.style.transform = 'rotate(0deg)';
             if (typeof openEventModal === 'function') openEventModal();
-            else showToast('Cannot open event modal', 'error');
+        });
+        document.getElementById('fabAddBusy')?.addEventListener('click', () => {
+            fabMenu.classList.add('scale-0', 'opacity-0', 'pointer-events-none');
+            fabIcon.style.transform = 'rotate(0deg)';
+            if (typeof openBusyModal === 'function') openBusyModal();
+        });
+        document.getElementById('fabAddTodo')?.addEventListener('click', () => {
+            fabMenu.classList.add('scale-0', 'opacity-0', 'pointer-events-none');
+            fabIcon.style.transform = 'rotate(0deg)';
+            if (typeof openTodoModal === 'function') openTodoModal();
         });
     }
+
     document.getElementById('gpsUpdateBtn')?.addEventListener('click', () => {
         if (gpsWatchId) stopGPS();
         else startGPS();
@@ -448,11 +483,11 @@ window.addEventListener('DOMContentLoaded', async () => {
         });
     }
 
+    // Modal click-outside handler
     document.querySelectorAll('.modal-backdrop[data-closeable]').forEach(modal => {
         modal.addEventListener('click', (e) => {
             if (e.target === modal) {
                 if (modal.id === 'eventModal') closeEventModalWithCheck();
-                else if (modal.id === 'todoModal') ModalManager.close('todoModal');
                 else ModalManager.close(modal.id);
             }
         });
@@ -461,30 +496,12 @@ window.addEventListener('DOMContentLoaded', async () => {
     document.addEventListener('keydown', (e) => {
         if (e.key === 'Escape') {
             if (ModalManager.current === 'eventModal') closeEventModalWithCheck();
-            else if (ModalManager.current === 'todoModal') ModalManager.close('todoModal');
             else if (ModalManager.current) ModalManager.close(ModalManager.current);
         }
     });
 
-    const notifBell = document.getElementById('notifBell');
-    const notifPanel = document.getElementById('notifPanel');
-    if (notifBell && notifPanel) {
-        notifBell.addEventListener('click', (e) => {
-            e.stopPropagation();
-            notifPanel.classList.toggle('hidden');
-            notificationLog.forEach(n => n.read = true);
-            updateNotifBadge();
-            renderNotifPanel();
-        });
-        document.addEventListener('click', (e) => {
-            if (!notifPanel.contains(e.target) && e.target !== notifBell) notifPanel.classList.add('hidden');
-        });
-        document.getElementById('clearAllNotifs')?.addEventListener('click', () => {
-            notificationLog.length = 0;
-            updateNotifBadge();
-            renderNotifPanel();
-        });
-    }
+    // NOTE: Duplicate notification bell listener removed from here.
+    // notifications.js already handles opening/closing the notification panel.
 
     const eventRepeatSelect = document.getElementById('eventRepeat');
     if (eventRepeatSelect) {
